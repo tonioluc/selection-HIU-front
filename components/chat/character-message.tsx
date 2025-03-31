@@ -260,15 +260,18 @@ export function CharacterMessage({ message, character, onFinish, onSpeakEnd, isM
           >
             <CardContent className="p-6">
               {isVideoMessage ? (
+                <>
                 <div className="relative w-full aspect-video rounded overflow-hidden">
                   {message.includes("youtube.com") || message.includes("youtu.be") ? (
+                    <>
                     <iframe
-                      src={convertYouTubeUrl(message)}
+                      src={message}
                       className="w-full h-full"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                       allowFullScreen
                       title="YouTube video player"
                     />
+                    </>
                   ) : (
                     <video
                       ref={videoRef}
@@ -285,6 +288,7 @@ export function CharacterMessage({ message, character, onFinish, onSpeakEnd, isM
                     />
                   )}
                 </div>
+                </>
               ) : (
                 <>
                   <p className="whitespace-pre-line text-lg">{displayedMessage}</p>

@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Volume2 } from "lucide-react"
 import { getUserAvatarForConversation, getUserNameForConversation } from "@/lib/messages"
+import { isValidURL, convertYouTubeUrl } from "@/lib/api-service"
 
 type MessageProps = {
   message: {
@@ -52,7 +53,23 @@ export function ChatMessage({ message, currentUserId, selectedUserId, onSpeakTex
                 : "bg-gray-200 dark:bg-gray-700",
           )}
         >
-          {message.type === "pictogram" ? <p className="text-xl">{message.content}</p> : <p>{message.content}</p>}
+          {isValidURL(message.content) ? (
+            <iframe
+              src={message.content}
+              className="w-full h-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              title="YouTube video player"
+            />
+            ) : (
+              <>
+                {message.type === "pictogram" ? (
+                  <p className="text-xl">{message.content}</p>
+                ) : (
+                  <p>{message.content}</p>
+                )}
+              </>
+            )}
 
           {onSpeakText && !isSystem && !isCurrentUser && (
             <Button

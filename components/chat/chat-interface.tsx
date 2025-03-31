@@ -231,10 +231,9 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
           // Appeler l'API Mistral
           const response = await callMistralAPI(inputValue)
 
-          console.log("response : " , response)
-
-          // Déterminer si la réponse est une URL ou du texte
           const messageType = isValidURL(response) ? "video" : "text"
+
+          console.log("messageType : ", messageType)
 
           // Créer le message de réponse
           const botResponse: Message = {
