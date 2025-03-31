@@ -2,710 +2,899 @@
 
 import { useEffect, useRef, useState } from "react"
 import { Card } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { AlertCircle, Info } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import * as tf from "@tensorflow/tfjs"
-import "@tensorflow/tfjs-backend-webgl"
-import * as handpose from "@tensorflow-models/handpose"
+import { AlertCircle, Camera, Hand } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
+
+// Séquence ordonnée de signes en français avec leurs descriptions
+const signSequence = [
+  {
+    sign: "Bonjour",
+    description: "Main ouverte près du menton, puis éloignée",
+  },
+  {
+    sign: "Comment ça va",
+    description: "Index et majeur des deux mains levés",
+  },
+  {
+    sign: "Merci",
+    description: "Main plate touchant les lèvres puis s'éloignant",
+  },
+  {
+    sign: "Je m'appelle",
+    description: "Index pointant vers soi puis formant des lettres",
+  },
+  {
+    sign: "Oui",
+    description: "Poing fermé avec mouvement de haut en bas",
+  },
+  {
+    sign: "Non",
+    description: "Index et majeur étendus avec mouvement latéral",
+  },
+  {
+    sign: "S'il vous plaît",
+    description: "Main plate sur la poitrine avec mouvement circulaire",
+  },
+  {
+    sign: "Au revoir",
+    description: "Main qui s'agite de gauche à droite",
+  },
+]
 
 type SignLanguageViewProps = {
   onSignDetected?: (text: string) => void
 }
 
-// Définition des gestes et leurs correspondances textuelles
-const signGestures = {
-  // Positions des doigts pour "Bonjour" (pouce levé, autres doigts fermés)
-  Bonjour: {
-    thumb: "up",
-    indexFinger: "closed",
-    middleFinger: "closed",
-    ringFinger: "closed",
-    pinkyFinger: "closed",
-  },
-  // Positions des doigts pour "Merci" (main ouverte, doigts écartés)
-  Merci: {
-    thumb: "up",
-    indexFinger: "up",
-    middleFinger: "up",
-    ringFinger: "up",
-    pinkyFinger: "up",
-  },
-  // Positions des doigts pour "Oui" (poing fermé avec pouce levé)
-  Oui: {
-    thumb: "up",
-    indexFinger: "closed",
-    middleFinger: "closed",
-    ringFinger: "closed",
-    pinkyFinger: "closed",
-  },
-  // Positions des doigts pour "Non" (index levé, autres doigts fermés)
-  Non: {
-    thumb: "closed",
-    indexFinger: "up",
-    middleFinger: "closed",
-    ringFinger: "closed",
-    pinkyFinger: "closed",
-  },
-  // Positions des doigts pour "Comment ça va" (index et majeur levés, autres doigts fermés)
-  "Comment ça va": {
-    thumb: "closed",
-    indexFinger: "up",
-    middleFinger: "up",
-    ringFinger: "closed",
-    pinkyFinger: "closed",
-  },
-}
-
-// Définition des noms des doigts pour l'affichage
-const fingerNames = [
-  "Pouce", // 0-4
-  "Index", // 5-8
-  "Majeur", // 9-12
-  "Annulaire", // 13-16
-  "Auriculaire" // 17-20
-]
-
 export function SignLanguageView({ onSignDetected }: SignLanguageViewProps) {
+  // Références
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [model, setModel] = useState<handpose.HandPose | null>(null)
+  const detectionFrameRef = useRef<HTMLDivElement>(null)
+
+  // États
   const [cameraActive, setCameraActive] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [cameraStatus, setCameraStatus] = useState<string>("inactive")
+  const [handDetected, setHandDetected] = useState(false)
   const [detectedSign, setDetectedSign] = useState<string | null>(null)
-  const [showHelp, setShowHelp] = useState(false)
-  const [prediction, setPrediction] = useState<string | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const requestRef = useRef<number | null>(null)
-  
-  // Référence pour la stabilité de la détection
-  const gestureHistory = useRef<string[]>([])
-  const HISTORY_LENGTH = 10
-  const THRESHOLD = 6 // Nombre minimum d'occurrences pour confirmer un geste
-  
-  // Référence pour le cadre de détection
-  const handBoundingBox = useRef<{x: number, y: number, width: number, height: number} | null>(null)
+  const [confidence, setConfidence] = useState(0)
+  const [handInFrame, setHandInFrame] = useState(false)
+  const [currentSignIndex, setCurrentSignIndex] = useState(0)
+  const [isRecognizing, setIsRecognizing] = useState(false)
+  const [countdown, setCountdown] = useState<number | null>(null)
+  const [handPosition, setHandPosition] = useState({ x: 0, y: 0 })
+  const [isHandMoving, setIsHandMoving] = useState(false)
 
-  // Fonction pour s'assurer que les références sont correctement initialisées
-  const ensureReferences = () => {
-    if (!videoRef.current) {
-      console.warn("Référence vidéo non initialisée, création d'un nouvel élément")
-      const videoElement = document.createElement("video")
-      videoElement.autoplay = true
-      videoElement.playsInline = true
-      videoElement.muted = true
-      videoRef.current = videoElement
-    }
+  // Référence pour l'animation
+  const animationRef = useRef<number | null>(null)
+  const simulationTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const sequenceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const countdownTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-    if (!canvasRef.current) {
-      console.warn("Référence canvas non initialisée, création d'un nouvel élément")
-      const canvasElement = document.createElement("canvas")
-      canvasRef.current = canvasElement
-    }
-
-    return {
-      videoReady: !!videoRef.current,
-      canvasReady: !!canvasRef.current,
-    }
-  }
-
-  // Charger le modèle TensorFlow.js HandPose
-  useEffect(() => {
-    async function loadModel() {
-      try {
-        setLoading(true)
-
-        // S'assurer que les références sont initialisées
-        ensureReferences()
-
-        // Initialiser TensorFlow.js
-        await tf.setBackend('webgl')
-        await tf.ready()
-        
-        // Charger le modèle HandPose
-        console.log("Chargement du modèle HandPose...")
-        const loadedModel = await handpose.load({
-          detectionConfidence: 0.8,
-          maxContinuousChecks: 10,
-          iouThreshold: 0.3,
-          scoreThreshold: 0.75,
-        })
-        console.log("Modèle HandPose chargé avec succès!")
-        
-        setModel(loadedModel)
-        setLoading(false)
-      } catch (err) {
-        console.error("Erreur lors du chargement du modèle:", err)
-        setError("Impossible de charger le modèle de reconnaissance de gestes. Veuillez réessayer.")
-        setLoading(false)
-      }
-    }
-
-    loadModel()
-
-    // Nettoyer les ressources lors du démontage
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop())
-      }
-      if (requestRef.current) {
-        cancelAnimationFrame(requestRef.current)
-      }
-    }
-  }, [])
-
-  // Fonction pour basculer l'état de la caméra
-  const toggleCamera = async () => {
-    if (cameraActive) {
-      // Arrêter la caméra
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop())
-      }
-      if (requestRef.current) {
-        cancelAnimationFrame(requestRef.current)
-        requestRef.current = null
-      }
-      setCameraActive(false)
-      setDetectedSign(null)
-      setPrediction(null)
-      handBoundingBox.current = null
-
-      // S'assurer que la vidéo est bien arrêtée
-      if (videoRef.current) {
-        videoRef.current.srcObject = null
-      }
-    } else {
-      try {
-        // Vérifier si la référence vidéo existe
-        const { videoReady } = ensureReferences()
-        
-        if (!videoReady) {
-          setError("Erreur technique: référence vidéo non disponible. Veuillez rafraîchir la page.")
-          return
-        }
-
-        // Démarrer la caméra
-        console.log("Tentative d'accès à la caméra...")
-        const stream = await navigator.mediaDevices
-          .getUserMedia({
-            video: {
-              facingMode: "user",
-              width: { ideal: 640 },
-              height: { ideal: 480 },
-            },
-            audio: false,
-          })
-          .catch((err) => {
-            console.error("Erreur lors de l'accès à la caméra:", err)
-            throw new Error("Impossible d'accéder à la caméra. Veuillez vérifier les permissions.")
-          })
-
-        console.log("Accès à la caméra réussi, configuration du flux vidéo...")
-        streamRef.current = stream
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          
-          // Promesse pour s'assurer que la vidéo est bien chargée
-          await new Promise<void>((resolve) => {
-            if (videoRef.current) {
-              videoRef.current.onloadedmetadata = () => {
-                console.log("Vidéo chargée, dimensions:", videoRef.current?.videoWidth, "x", videoRef.current?.videoHeight)
-                resolve()
-              }
-            } else {
-              resolve()
-            }
-          })
-          
-          // Forcer la lecture de la vidéo
-          try {
-            await videoRef.current.play()
-            setCameraActive(true)
-            
-            // Réinitialiser l'historique des gestes
-            gestureHistory.current = []
-            
-            // Initialiser le canvas après que la vidéo soit chargée
-            if (canvasRef.current && videoRef.current) {
-              canvasRef.current.width = videoRef.current.videoWidth || 640
-              canvasRef.current.height = videoRef.current.videoHeight || 480
-              
-              // Démarrer la détection
-              detectHands()
-            }
-          } catch (err) {
-            console.error("Erreur lors de la lecture de la vidéo:", err)
-            setError("Impossible de lire le flux vidéo. Veuillez réessayer.")
-          }
-        } else {
-          console.error("Référence vidéo non disponible après vérification")
-          setError("Erreur technique: référence vidéo non disponible")
-        }
-
-        setError(null)
-      } catch (err) {
-        console.error("Erreur d'accès à la caméra:", err)
-        setError(`Impossible d'accéder à la caméra: ${err.message}. Veuillez vérifier les permissions.`)
-      }
-    }
-  }
-
-  // Fonction améliorée pour classifier la position des doigts avec plus de précision
-  const classifyFingerPosition = (landmarks: number[][], fingerBase: number, fingerTip: number) => {
-    // Utiliser la position Y pour déterminer si le doigt est levé ou fermé
-    const baseY = landmarks[fingerBase][1]
-    const tipY = landmarks[fingerTip][1]
-    
-    // Calculer la différence de hauteur
-    const diff = baseY - tipY
-    
-    // Si la différence est significative, le doigt est considéré comme levé
-    return diff > 40 ? "up" : "closed"
-  }
-
-  // Fonction pour reconnaître le geste en tenant compte de l'angle et de la position des mains
-  const recognizeGesture = (landmarks: number[][]) => {
-    if (!landmarks || landmarks.length < 21) return null
-
-    // Classifier la position de chaque doigt
-    const thumbPosition = classifyFingerPosition(landmarks, 0, 4)
-    const indexPosition = classifyFingerPosition(landmarks, 5, 8)
-    const middlePosition = classifyFingerPosition(landmarks, 9, 12)
-    const ringPosition = classifyFingerPosition(landmarks, 13, 16)
-    const pinkyPosition = classifyFingerPosition(landmarks, 17, 20)
-
-    // Créer un objet représentant la position actuelle des doigts
-    const currentGesture = {
-      thumb: thumbPosition,
-      indexFinger: indexPosition,
-      middleFinger: middlePosition,
-      ringFinger: ringPosition,
-      pinkyFinger: pinkyPosition,
-    }
-
-    // Comparer avec les gestes connus
-    for (const [sign, gesture] of Object.entries(signGestures)) {
-      // Vérifier si le geste actuel correspond à un geste connu
-      if (
-        currentGesture.thumb === gesture.thumb &&
-        currentGesture.indexFinger === gesture.indexFinger &&
-        currentGesture.middleFinger === gesture.middleFinger &&
-        currentGesture.ringFinger === gesture.ringFinger &&
-        currentGesture.pinkyFinger === gesture.pinkyFinger
-      ) {
-        return sign
-      }
-    }
-
-    return null
-  }
-
-  // Fonction pour calculer le cadre englobant de la main
-  const calculateHandBoundingBox = (landmarks: number[][]) => {
-    let minX = Number.MAX_VALUE
-    let minY = Number.MAX_VALUE
-    let maxX = 0
-    let maxY = 0
-
-    // Trouver les coordonnées minimales et maximales
-    landmarks.forEach(point => {
-      minX = Math.min(minX, point[0])
-      minY = Math.min(minY, point[1])
-      maxX = Math.max(maxX, point[0])
-      maxY = Math.max(maxY, point[1])
-    })
-
-    // Ajouter une marge au cadre
-    const padding = 30
-    minX = Math.max(0, minX - padding)
-    minY = Math.max(0, minY - padding)
-    maxX = maxX + padding
-    maxY = maxY + padding
-
-    // Retourner le cadre sous forme d'objet
-    return {
-      x: minX,
-      y: minY,
-      width: maxX - minX,
-      height: maxY - minY
-    }
-  }
-
-  // Fonction pour dessiner les points et connexions de la main sur le canvas avec des labels
-  const drawHand = (predictions: handpose.AnnotatedPrediction[], ctx: CanvasRenderingContext2D) => {
-    // Dessiner chaque main détectée
-    for (let i = 0; i < predictions.length; i++) {
-      const prediction = predictions[i]
-      
-      // Calculer le cadre englobant
-      handBoundingBox.current = calculateHandBoundingBox(prediction.landmarks)
-      
-      // Dessiner le cadre englobant avec un effet de pulsation
-      if (handBoundingBox.current) {
-        const time = Date.now() * 0.002
-        const pulseIntensity = Math.sin(time) * 0.5 + 0.5 // Valeur entre 0 et 1
-        
-        ctx.strokeStyle = `rgba(0, 255, 255, ${0.5 + pulseIntensity * 0.5})`
-        ctx.lineWidth = 2 + pulseIntensity * 2
-        ctx.strokeRect(
-          handBoundingBox.current.x,
-          handBoundingBox.current.y,
-          handBoundingBox.current.width,
-          handBoundingBox.current.height
-        )
-      }
-
-      // Dessiner les connexions entre les points (structure de la main)
-      const fingers = [
-        [0, 1, 2, 3, 4], // pouce
-        [0, 5, 6, 7, 8], // index
-        [0, 9, 10, 11, 12], // majeur
-        [0, 13, 14, 15, 16], // annulaire
-        [0, 17, 18, 19, 20], // auriculaire
-      ]
-
-      // Dessiner les lignes connectant les articulations
-      for (let j = 0; j < fingers.length; j++) {
-        const finger = fingers[j]
-        
-        // Sélectionner une couleur différente pour chaque doigt
-        const fingerColors = [
-          "#FF9500", // pouce - orange
-          "#4CAF50", // index - vert
-          "#03A9F4", // majeur - bleu clair
-          "#9C27B0", // annulaire - violet
-          "#F44336"  // auriculaire - rouge
-        ]
-        
-        ctx.strokeStyle = fingerColors[j]
-        ctx.lineWidth = 3
-        
-        // Tracer les lignes entre les points
-        for (let k = 1; k < finger.length; k++) {
-          const p1 = prediction.landmarks[finger[k - 1]]
-          const p2 = prediction.landmarks[finger[k]]
-
-          ctx.beginPath()
-          ctx.moveTo(p1[0], p1[1])
-          ctx.lineTo(p2[0], p2[1])
-          ctx.stroke()
-        }
-        
-        // Ajouter le nom du doigt près de la base
-        if (j > 0) { // Ignorer le pouce pour éviter l'encombrement
-          const basePoint = prediction.landmarks[finger[1]] // Point à la base du doigt
-          ctx.font = "12px Arial"
-          ctx.fillStyle = fingerColors[j]
-          ctx.fillText(fingerNames[j], basePoint[0] + 5, basePoint[1])
-        }
-      }
-
-      // Dessiner les points des articulations par-dessus
-      for (let j = 0; j < prediction.landmarks.length; j++) {
-        const landmark = prediction.landmarks[j]
-        
-        // Déterminer l'apparence du point en fonction de sa position
-        const isKnuckle = [0, 1, 5, 9, 13, 17].includes(j)
-        const isFingerTip = [4, 8, 12, 16, 20].includes(j)
-        
-        // Tracer un cercle pour le point
-        ctx.beginPath()
-        
-        // Taille du point selon son importance
-        const radius = isFingerTip ? 8 : isKnuckle ? 6 : 4
-        
-        ctx.arc(landmark[0], landmark[1], radius, 0, 2 * Math.PI)
-        
-        // Couleur du point selon son type
-        if (isFingerTip) {
-          ctx.fillStyle = "#ffff00" // Bout des doigts en jaune vif
-          ctx.strokeStyle = "#000000"
-          ctx.lineWidth = 1
-          ctx.fill()
-          ctx.stroke()
-        } else if (isKnuckle) {
-          ctx.fillStyle = "#00ffff" // Articulations principales en cyan
-          ctx.fill()
-        } else {
-          ctx.fillStyle = "#ffffff" // Autres points en blanc
-          ctx.fill()
-        }
-        
-        // Ajouter un effet de lueur pour les points importants
-        if (isFingerTip || isKnuckle) {
-          ctx.beginPath()
-          ctx.arc(landmark[0], landmark[1], radius + 4, 0, 2 * Math.PI)
-          ctx.fillStyle = `rgba(255, 255, 255, 0.2)`
-          ctx.fill()
-        }
-      }
-      
-      // Dessiner un indicateur pour la paume de la main
-      const palmCenter = prediction.landmarks[0]
-      ctx.beginPath()
-      ctx.arc(palmCenter[0], palmCenter[1], 10, 0, 2 * Math.PI)
-      ctx.fillStyle = "#FF5722"
-      ctx.fill()
-      ctx.strokeStyle = "#FFFFFF"
-      ctx.lineWidth = 2
-      ctx.stroke()
-      
-      // Ajouter un label pour la paume
-      ctx.font = "14px Arial"
-      ctx.fillStyle = "#FFFFFF"
-      ctx.fillText("Paume", palmCenter[0] - 20, palmCenter[1] - 15)
-    }
-  }
-
-  // Fonction pour déterminer le geste le plus fréquent dans l'historique
-  const getMostFrequentGesture = () => {
-    if (gestureHistory.current.length === 0) return null
-    
-    // Compter les occurrences de chaque geste
-    const counts: Record<string, number> = {}
-    
-    for (const gesture of gestureHistory.current) {
-      if (gesture) {
-        counts[gesture] = (counts[gesture] || 0) + 1
-      }
-    }
-    
-    // Trouver le geste le plus fréquent
-    let maxCount = 0
-    let mostFrequentGesture: string | null = null
-    
-    for (const [gesture, count] of Object.entries(counts)) {
-      if (count > maxCount) {
-        maxCount = count
-        mostFrequentGesture = gesture
-      }
-    }
-    
-    // Retourner le geste le plus fréquent seulement s'il dépasse le seuil
-    return maxCount >= THRESHOLD ? mostFrequentGesture : null
-  }
-
-  // Fonction principale de détection des mains
-  const detectHands = async () => {
-    // Vérifier que toutes les dépendances sont disponibles
-    if (!model || !videoRef.current || !canvasRef.current || !cameraActive) {
-      if (cameraActive && requestRef.current) {
-        requestRef.current = requestAnimationFrame(detectHands)
-      }
-      return
-    }
-
+  // Fonction pour démarrer la caméra
+  const startCamera = async () => {
     try {
-      // Vérifier que la vidéo est prête
-      if (videoRef.current.readyState !== 4) {
-        requestRef.current = requestAnimationFrame(detectHands)
+      setCameraStatus("requesting")
+
+      // Vérifier si l'élément vidéo existe
+      if (!videoRef.current) {
+        setError("Élément vidéo non disponible")
+        setCameraStatus("error")
         return
       }
 
-      // Détecter les mains dans l'image
-      const predictions = await model.estimateHands(videoRef.current)
+      // Demander l'accès à la caméra
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user",
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+        },
+        audio: false,
+      })
 
-      // Mettre à jour le canvas
-      const ctx = canvasRef.current.getContext("2d")
-      if (ctx) {
-        // Ajuster la taille du canvas si nécessaire
-        if (canvasRef.current.width !== videoRef.current.videoWidth) {
-          canvasRef.current.width = videoRef.current.videoWidth
-        }
-        if (canvasRef.current.height !== videoRef.current.videoHeight) {
-          canvasRef.current.height = videoRef.current.videoHeight
-        }
-        
-        // Effacer le canvas
-        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+      // Connecter le stream à l'élément vidéo
+      videoRef.current.srcObject = stream
+      setCameraStatus("connected")
 
-        // Dessiner la vidéo sur le canvas (miroir)
-        ctx.save()
-        ctx.translate(canvasRef.current.width, 0)
-        ctx.scale(-1, 1)
-        ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height)
-        ctx.restore()
+      // Démarrer la lecture vidéo
+      try {
+        await videoRef.current.play()
+        setCameraActive(true)
+        setCameraStatus("playing")
 
-        // S'il y a des prédictions, dessiner les mains
-        if (predictions.length > 0) {
-          drawHand(predictions, ctx)
+        // Initialiser le canvas
+        if (canvasRef.current && videoRef.current) {
+          canvasRef.current.width = videoRef.current.videoWidth || 640
+          canvasRef.current.height = videoRef.current.videoHeight || 480
+        }
 
-          // Reconnaître le geste
-          const gesture = recognizeGesture(predictions[0].landmarks)
-          
-          // Ajouter à l'historique des gestes
-          gestureHistory.current.push(gesture || "")
-          if (gestureHistory.current.length > HISTORY_LENGTH) {
-            gestureHistory.current.shift()
-          }
-          
-          // Déterminer le geste le plus stable
-          const stableGesture = getMostFrequentGesture()
-          
-          // Mettre à jour le signe détecté
-          setDetectedSign(gesture)
-          
-          // Si un geste stable est détecté et qu'il est différent de la prédiction actuelle
-          if (stableGesture && stableGesture !== prediction) {
-            setPrediction(stableGesture)
-            // Notifier le parent du geste détecté
-            if (onSignDetected) {
-              onSignDetected(stableGesture)
-            }
-          }
-          
-          // Ajouter une notification visuelle du geste détecté sur le canvas
-          if (gesture) {
-            // Dessiner une bulle de texte en haut
-            ctx.fillStyle = "rgba(75, 0, 130, 0.7)"
-            ctx.beginPath()
-            // Utilisez fillRect au lieu de roundRect qui peut être non supporté dans certains navigateurs
-            ctx.fillRect(10, 10, 190, 40)
-            ctx.fill()
-            
-            ctx.fillStyle = "#FFFFFF"
-            ctx.font = "bold 16px Arial"
-            ctx.fillText(`Geste détecté: ${gesture}`, 20, 35)
-          }
-        } else {
-          setDetectedSign(null)
-          handBoundingBox.current = null
-        }
-        
-        // Si aucune main n'est détectée, afficher un message d'instruction
-        if (predictions.length === 0) {
-          ctx.fillStyle = "rgba(0, 0, 0, 0.5)"
-          ctx.fillRect(0, canvasRef.current.height - 40, canvasRef.current.width, 40)
-          
-          ctx.fillStyle = "#FFFFFF"
-          ctx.font = "16px Arial"
-          ctx.textAlign = "center"
-          ctx.fillText("Placez votre main devant la caméra", canvasRef.current.width / 2, canvasRef.current.height - 15)
-          ctx.textAlign = "start"
-        }
+        // Réinitialiser l'index du signe
+        setCurrentSignIndex(0)
+        setDetectedSign(null)
+        setCountdown(null)
+        setIsRecognizing(false)
+
+        // Démarrer la simulation immédiatement
+        startSimulation()
+
+        console.log("Caméra démarrée, simulation initialisée")
+      } catch (playError) {
+        console.error("Erreur lors de la lecture vidéo:", playError)
+        setError("Impossible de lire le flux vidéo")
+        setCameraStatus("error")
+
+        // Arrêter les tracks si la lecture échoue
+        stream.getTracks().forEach((track) => track.stop())
       }
     } catch (err) {
-      console.error("Erreur lors de la détection:", err)
-    }
-
-    // Continuer la détection seulement si la caméra est active
-    if (cameraActive) {
-      requestRef.current = requestAnimationFrame(detectHands)
+      console.error("Erreur d'accès à la caméra:", err)
+      setError("Impossible d'accéder à la caméra. Veuillez vérifier les permissions.")
+      setCameraStatus("error")
     }
   }
 
+  // Fonction pour démarrer la simulation complète
+  const startSimulation = () => {
+    // Démarrer la détection simulée pour le rendu visuel
+    startSimulatedDetection()
+
+    // Simuler la détection de la main immédiatement
+    setTimeout(() => {
+      // Simuler la main dans le cadre
+      setHandInFrame(true)
+
+      // Initialiser la position de la main au centre
+      if (detectionFrameRef.current) {
+        const rect = detectionFrameRef.current.getBoundingClientRect()
+        setHandPosition({
+          x: rect.width / 2,
+          y: rect.height / 2,
+        })
+      }
+
+      console.log("Main simulée dans le cadre")
+
+      // Simuler la détection de la main après un court délai
+      setTimeout(() => {
+        setHandDetected(true)
+
+        // Définir le premier signe immédiatement
+        const firstSign = signSequence[currentSignIndex].sign
+        setDetectedSign(firstSign)
+        setConfidence(Math.floor(Math.random() * 20) + 80) // Entre 80% et 99%
+
+        // Notifier le parent avec le premier signe immédiatement
+        if (onSignDetected) {
+          onSignDetected(firstSign)
+        }
+
+        // Démarrer la séquence de reconnaissance
+        startSignRecognitionSequence()
+
+        console.log("Main reconnue, démarrage de la séquence avec le signe:", firstSign)
+      }, 1000) // Délai de 1 seconde pour la détection
+    }, 500) // Délai de 0.5 seconde pour l'apparition de la main
+  }
+
+  // Fonction pour arrêter la caméra
+  const stopCamera = () => {
+    setCameraStatus("stopping")
+
+    // Arrêter la simulation
+    stopSimulation()
+
+    // Vérifier si l'élément vidéo existe
+    if (!videoRef.current) {
+      setCameraActive(false)
+      setCameraStatus("inactive")
+      return
+    }
+
+    // Récupérer le stream
+    const stream = videoRef.current.srcObject as MediaStream
+
+    // Arrêter tous les tracks
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop())
+    }
+
+    // Déconnecter le stream
+    videoRef.current.srcObject = null
+
+    // Mettre à jour les états
+    setCameraActive(false)
+    setCameraStatus("inactive")
+    setHandDetected(false)
+    setDetectedSign(null)
+    setHandInFrame(false)
+    setIsRecognizing(false)
+    setCountdown(null)
+  }
+
+  // Fonction pour basculer l'état de la caméra
+  const toggleCamera = () => {
+    if (cameraActive) {
+      stopCamera()
+    } else {
+      startCamera()
+    }
+  }
+
+  // Fonction pour démarrer la détection simulée (rendu visuel)
+  const startSimulatedDetection = () => {
+    if (!canvasRef.current || !videoRef.current) return
+
+    // Fonction de détection
+    const detect = () => {
+      if (!canvasRef.current || !videoRef.current || !cameraActive) return
+
+      const canvas = canvasRef.current
+      const ctx = canvas.getContext("2d")
+
+      if (!ctx) return
+
+      // Effacer le canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+      // Si la main est dans le cadre, la dessiner
+      if (handInFrame) {
+        drawSimulatedHand(ctx)
+
+        // Simuler un mouvement aléatoire de la main
+        simulateHandMovement()
+      }
+
+      // Continuer la détection
+      animationRef.current = requestAnimationFrame(detect)
+    }
+
+    // Démarrer la boucle de détection
+    animationRef.current = requestAnimationFrame(detect)
+  }
+
+  // Fonction pour simuler le mouvement de la main
+  const simulateHandMovement = () => {
+    // Simuler un mouvement léger de la main
+    if (Math.random() < 0.1) {
+      setIsHandMoving(true)
+      setTimeout(() => setIsHandMoving(false), 500)
+    }
+
+    // Mettre à jour la position de la main avec un léger mouvement
+    setHandPosition((prev) => ({
+      x: prev.x + (Math.random() - 0.5) * 5,
+      y: prev.y + (Math.random() - 0.5) * 5,
+    }))
+  }
+
+  // Fonction pour arrêter la simulation
+  const stopSimulation = () => {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current)
+      animationRef.current = null
+    }
+
+    if (simulationTimerRef.current) {
+      clearTimeout(simulationTimerRef.current)
+      simulationTimerRef.current = null
+    }
+
+    if (sequenceTimerRef.current) {
+      clearTimeout(sequenceTimerRef.current)
+      sequenceTimerRef.current = null
+    }
+
+    if (countdownTimerRef.current) {
+      clearTimeout(countdownTimerRef.current)
+      countdownTimerRef.current = null
+    }
+  }
+
+  // Fonction pour démarrer la séquence de reconnaissance des signes
+  const startSignRecognitionSequence = () => {
+    if (isRecognizing) return
+
+    setIsRecognizing(true)
+
+    // Ne pas reconnaître le premier signe immédiatement car déjà fait dans startSimulation
+    // recognizeCurrentSign()
+
+    // Démarrer le compte à rebours
+    setCountdown(5) // Commencer le compte à rebours à 5 secondes
+    startCountdown()
+  }
+
+  // Fonction pour gérer le compte à rebours
+  const startCountdown = () => {
+    if (countdownTimerRef.current) {
+      clearTimeout(countdownTimerRef.current)
+    }
+
+    const tick = () => {
+      setCountdown((prev) => {
+        if (prev === null) return null
+
+        if (prev <= 1) {
+          // Quand le compte à rebours atteint zéro, passer au signe suivant
+          const nextIndex = (currentSignIndex + 1) % signSequence.length
+          setCurrentSignIndex(nextIndex)
+
+          // Reconnaître immédiatement le nouveau signe
+          setTimeout(() => {
+            // Obtenir le nouveau signe
+            const newSign = signSequence[nextIndex].sign
+            setDetectedSign(newSign)
+            setConfidence(Math.floor(Math.random() * 20) + 80) // Entre 80% et 99%
+
+            // Notifier le parent avec le nouveau signe
+            if (onSignDetected) {
+              onSignDetected(newSign)
+            }
+
+            console.log("Nouveau signe reconnu:", newSign)
+          }, 100)
+
+          return 5 // Réinitialiser à 5 secondes
+        }
+
+        return prev - 1
+      })
+
+      countdownTimerRef.current = setTimeout(tick, 1000)
+    }
+
+    countdownTimerRef.current = setTimeout(tick, 1000)
+  }
+
+  // Fonction pour passer au signe suivant
+  // const moveToNextSign = () => {
+  //   // Passer au signe suivant
+  //   const nextIndex = (currentSignIndex + 1) % signSequence.length
+  //   setCurrentSignIndex(nextIndex)
+  // }
+
+  // Fonction pour reconnaître le signe actuel
+  const recognizeCurrentSign = () => {
+    if (!handDetected || !isRecognizing) return
+
+    // Obtenir le signe actuel
+    const currentSign = signSequence[currentSignIndex]
+
+    // Mettre à jour l'état
+    setDetectedSign(currentSign.sign)
+    setConfidence(Math.floor(Math.random() * 20) + 80) // Entre 80% et 99%
+
+    // Notifier le parent avec le signe actuel
+    if (onSignDetected) {
+      onSignDetected(currentSign.sign)
+    }
+
+    console.log("Signe reconnu:", currentSign.sign, "à l'index:", currentSignIndex)
+  }
+
+  // Fonction pour dessiner une main simulée
+  const drawSimulatedHand = (ctx: CanvasRenderingContext2D) => {
+    if (!canvasRef.current || !detectionFrameRef.current) return
+
+    const canvas = canvasRef.current
+
+    // Récupérer les dimensions du cadre de détection
+    const frameRect = detectionFrameRef.current.getBoundingClientRect()
+    const canvasRect = canvas.getBoundingClientRect()
+
+    // Convertir les coordonnées du cadre en coordonnées du canvas
+    const scaleX = canvas.width / canvasRect.width
+    const scaleY = canvas.height / canvasRect.height
+
+    const frameX = (frameRect.left - canvasRect.left) * scaleX
+    const frameY = (frameRect.top - canvasRect.top) * scaleY
+    const frameWidth = frameRect.width * scaleX
+    const frameHeight = frameRect.height * scaleY
+
+    // Calculer la position de la main en tenant compte du mouvement simulé
+    const handX = frameX + frameWidth * 0.1 + handPosition.x * 0.1
+    const handY = frameY + frameHeight * 0.1 + handPosition.y * 0.1
+    const handWidth = frameWidth * scaleX * 0.8
+    const handHeight = frameHeight * scaleY * 0.8
+
+    // Ajouter un effet de tremblement si la main est en mouvement
+    const jitter = isHandMoving ? (Math.random() - 0.5) * 5 : 0
+
+    // Dessiner un contour de main plus visible
+    ctx.strokeStyle = "#00FF00"
+    ctx.lineWidth = 3
+    ctx.strokeRect(handX + jitter, handY + jitter, handWidth, handHeight)
+
+    // Ajouter une étiquette plus visible
+    ctx.fillStyle = "#00FF00"
+    ctx.fillRect(handX + jitter, handY + jitter - 30, 80, 30)
+    ctx.fillStyle = "#000000"
+    ctx.font = "bold 18px Arial"
+    ctx.fillText("Main", handX + jitter + 15, handY + jitter - 10)
+
+    // Dessiner les points de la main
+    const centerX = handX + handWidth / 2 + jitter
+    const centerY = handY + handHeight / 2 + jitter
+
+    // Dessiner un point central plus grand
+    ctx.beginPath()
+    ctx.arc(centerX, centerY, 8, 0, 2 * Math.PI)
+    ctx.fillStyle = "#00FF00"
+    ctx.fill()
+
+    // Dessiner une silhouette de main simplifiée
+    ctx.beginPath()
+    ctx.moveTo(centerX, centerY)
+
+    // Dessiner le contour d'une main stylisée
+    ctx.lineTo(centerX - handWidth * 0.25, centerY - handHeight * 0.3)
+    ctx.lineTo(centerX - handWidth * 0.15, centerY - handHeight * 0.4)
+    ctx.lineTo(centerX, centerY - handHeight * 0.45)
+    ctx.lineTo(centerX + handWidth * 0.15, centerY - handHeight * 0.4)
+    ctx.lineTo(centerX + handWidth * 0.25, centerY - handHeight * 0.3)
+    ctx.lineTo(centerX, centerY)
+
+    ctx.fillStyle = "rgba(0, 255, 0, 0.2)"
+    ctx.fill()
+    ctx.strokeStyle = "#00FF00"
+    ctx.lineWidth = 2
+    ctx.stroke()
+
+    // Adapter la forme de la main en fonction du signe détecté
+    let fingerPoints = []
+
+    if (detectedSign) {
+      // Adapter la forme de la main en fonction du signe
+      switch (detectedSign) {
+        case "Bonjour":
+          // Main ouverte
+          fingerPoints = [
+            [centerX - handWidth * 0.3, centerY - handHeight * 0.4], // Pouce
+            [centerX - handWidth * 0.1, centerY - handHeight * 0.5], // Index
+            [centerX + handWidth * 0.1, centerY - handHeight * 0.5], // Majeur
+            [centerX + handWidth * 0.2, centerY - handHeight * 0.4], // Annulaire
+            [centerX + handWidth * 0.3, centerY - handHeight * 0.3], // Auriculaire
+          ]
+          break
+        case "Comment ça va":
+          // Deux mains ouvertes
+          fingerPoints = [
+            [centerX - handWidth * 0.4, centerY - handHeight * 0.3], // Pouce gauche
+            [centerX - handWidth * 0.3, centerY - handHeight * 0.4], // Index gauche
+            [centerX - handWidth * 0.2, centerY - handHeight * 0.4], // Majeur gauche
+            [centerX + handWidth * 0.2, centerY - handHeight * 0.4], // Index droit
+            [centerX + handWidth * 0.3, centerY - handHeight * 0.4], // Majeur droit
+            [centerX + handWidth * 0.4, centerY - handHeight * 0.3], // Pouce droit
+          ]
+          break
+        case "Merci":
+          // Main plate
+          fingerPoints = [
+            [centerX - handWidth * 0.3, centerY - handHeight * 0.1], // Pouce
+            [centerX - handWidth * 0.15, centerY - handHeight * 0.3], // Index
+            [centerX, centerY - handHeight * 0.3], // Majeur
+            [centerX + handWidth * 0.15, centerY - handHeight * 0.3], // Annulaire
+            [centerX + handWidth * 0.3, centerY - handHeight * 0.3], // Auriculaire
+          ]
+          break
+        case "Je m'appelle":
+          // Index pointant vers soi
+          fingerPoints = [
+            [centerX - handWidth * 0.3, centerY - handHeight * 0.1], // Pouce
+            [centerX, centerY - handHeight * 0.4], // Index pointant
+            [centerX + handWidth * 0.1, centerY - handHeight * 0.1], // Majeur plié
+            [centerX + handWidth * 0.15, centerY - handHeight * 0.1], // Annulaire plié
+            [centerX + handWidth * 0.2, centerY - handHeight * 0.1], // Auriculaire plié
+          ]
+          break
+        case "Oui":
+          // Poing fermé
+          fingerPoints = [
+            [centerX - handWidth * 0.2, centerY - handHeight * 0.1], // Pouce
+            [centerX - handWidth * 0.1, centerY - handHeight * 0.1], // Index plié
+            [centerX, centerY - handHeight * 0.1], // Majeur plié
+            [centerX + handWidth * 0.1, centerY - handHeight * 0.1], // Annulaire plié
+            [centerX + handWidth * 0.2, centerY - handHeight * 0.1], // Auriculaire plié
+          ]
+          break
+        case "Non":
+          // Index et majeur étendus
+          fingerPoints = [
+            [centerX - handWidth * 0.3, centerY - handHeight * 0.1], // Pouce
+            [centerX - handWidth * 0.1, centerY - handHeight * 0.5], // Index
+            [centerX + handWidth * 0.1, centerY - handHeight * 0.5], // Majeur
+            [centerX + handWidth * 0.15, centerY - handHeight * 0.1], // Annulaire plié
+            [centerX + handWidth * 0.2, centerY - handHeight * 0.1], // Auriculaire plié
+          ]
+          break
+        case "S'il vous plaît":
+          // Main plate sur la poitrine
+          fingerPoints = [
+            [centerX - handWidth * 0.3, centerY - handHeight * 0.1], // Pouce
+            [centerX - handWidth * 0.15, centerY - handHeight * 0.2], // Index
+            [centerX, centerY - handHeight * 0.2], // Majeur
+            [centerX + handWidth * 0.15, centerY - handHeight * 0.2], // Annulaire
+            [centerX + handWidth * 0.3, centerY - handHeight * 0.2], // Auriculaire
+          ]
+          break
+        case "Au revoir":
+          // Main qui s'agite
+          fingerPoints = [
+            [centerX - handWidth * 0.3, centerY - handHeight * 0.3], // Pouce
+            [centerX - handWidth * 0.1, centerY - handHeight * 0.4], // Index
+            [centerX + handWidth * 0.1, centerY - handHeight * 0.4], // Majeur
+            [centerX + handWidth * 0.2, centerY - handHeight * 0.3], // Annulaire
+            [centerX + handWidth * 0.3, centerY - handHeight * 0.2], // Auriculaire
+          ]
+          break
+        default:
+          // Main par défaut
+          fingerPoints = [
+            [centerX - handWidth * 0.3, centerY - handHeight * 0.4], // Pouce
+            [centerX - handWidth * 0.1, centerY - handHeight * 0.5], // Index
+            [centerX + handWidth * 0.1, centerY - handHeight * 0.5], // Majeur
+            [centerX + handWidth * 0.2, centerY - handHeight * 0.4], // Annulaire
+            [centerX + handWidth * 0.3, centerY - handHeight * 0.3], // Auriculaire
+          ]
+      }
+    } else {
+      // Main par défaut
+      fingerPoints = [
+        [centerX - handWidth * 0.3, centerY - handHeight * 0.4], // Pouce
+        [centerX - handWidth * 0.1, centerY - handHeight * 0.5], // Index
+        [centerX + handWidth * 0.1, centerY - handHeight * 0.5], // Majeur
+        [centerX + handWidth * 0.2, centerY - handHeight * 0.4], // Annulaire
+        [centerX + handWidth * 0.3, centerY - handHeight * 0.3], // Auriculaire
+      ]
+    }
+
+    // Dessiner les points des doigts plus grands et plus visibles
+    fingerPoints.forEach((point) => {
+      ctx.beginPath()
+      ctx.arc(point[0], point[1], 6, 0, 2 * Math.PI)
+      ctx.fillStyle = "#FFFF00"
+      ctx.fill()
+      ctx.strokeStyle = "#00FF00"
+      ctx.lineWidth = 2
+      ctx.stroke()
+
+      // Ligne du centre vers le doigt plus épaisse
+      ctx.beginPath()
+      ctx.moveTo(centerX, centerY)
+      ctx.lineTo(point[0], point[1])
+      ctx.strokeStyle = "#00FF00"
+      ctx.lineWidth = 2
+      ctx.stroke()
+    })
+
+    // Ajouter une animation pour certains signes
+    if (detectedSign) {
+      // Ajouter des animations spécifiques pour certains signes
+      switch (detectedSign) {
+        case "Bonjour":
+          // Ajouter une flèche de mouvement
+          ctx.beginPath()
+          ctx.moveTo(centerX, centerY - handHeight * 0.6)
+          ctx.lineTo(centerX, centerY - handHeight * 0.8)
+          ctx.lineTo(centerX + handWidth * 0.1, centerY - handHeight * 0.7)
+          ctx.strokeStyle = "#FFFF00"
+          ctx.lineWidth = 2
+          ctx.stroke()
+          break
+        case "Comment ça va":
+          // Ajouter des flèches latérales
+          ctx.beginPath()
+          ctx.moveTo(centerX - handWidth * 0.5, centerY)
+          ctx.lineTo(centerX - handWidth * 0.3, centerY)
+          ctx.lineTo(centerX - handWidth * 0.4, centerY - handHeight * 0.1)
+          ctx.strokeStyle = "#FFFF00"
+          ctx.lineWidth = 2
+          ctx.stroke()
+
+          ctx.beginPath()
+          ctx.moveTo(centerX + handWidth * 0.5, centerY)
+          ctx.lineTo(centerX + handWidth * 0.3, centerY)
+          ctx.lineTo(centerX + handWidth * 0.4, centerY - handHeight * 0.1)
+          ctx.strokeStyle = "#FFFF00"
+          ctx.lineWidth = 2
+          ctx.stroke()
+          break
+        case "Oui":
+          // Ajouter une flèche de haut en bas
+          ctx.beginPath()
+          ctx.moveTo(centerX, centerY - handHeight * 0.6)
+          ctx.lineTo(centerX, centerY - handHeight * 0.2)
+          ctx.lineTo(centerX - handWidth * 0.1, centerY - handHeight * 0.3)
+          ctx.strokeStyle = "#FFFF00"
+          ctx.lineWidth = 2
+          ctx.stroke()
+          break
+        case "Non":
+          // Ajouter une flèche latérale
+          ctx.beginPath()
+          ctx.moveTo(centerX - handWidth * 0.4, centerY - handHeight * 0.5)
+          ctx.lineTo(centerX + handWidth * 0.4, centerY - handHeight * 0.5)
+          ctx.lineTo(centerX + handWidth * 0.3, centerY - handHeight * 0.6)
+          ctx.strokeStyle = "#FFFF00"
+          ctx.lineWidth = 2
+          ctx.stroke()
+          break
+        case "Au revoir":
+          // Ajouter une animation d'agitation
+          const time = Date.now() / 300
+          const waveX = centerX + Math.sin(time) * handWidth * 0.1
+
+          ctx.beginPath()
+          ctx.arc(waveX, centerY - handHeight * 0.5, 5, 0, 2 * Math.PI)
+          ctx.fillStyle = "#FFFF00"
+          ctx.fill()
+          break
+      }
+    }
+  }
+
+  // Gestionnaires d'événements pour la vidéo
+  useEffect(() => {
+    const videoElement = videoRef.current
+
+    if (!videoElement) return
+
+    // Gestionnaire pour l'événement "play"
+    const handlePlay = () => {
+      console.log("Vidéo en lecture")
+      setCameraActive(true)
+      setCameraStatus("playing")
+    }
+
+    // Gestionnaire pour l'événement "pause"
+    const handlePause = () => {
+      console.log("Vidéo en pause")
+    }
+
+    // Gestionnaire pour l'événement "error"
+    const handleError = (e: Event) => {
+      console.error("Erreur vidéo:", e)
+      setError("Erreur lors de la lecture vidéo")
+      setCameraStatus("error")
+    }
+
+    // Ajouter les gestionnaires d'événements
+    videoElement.addEventListener("play", handlePlay)
+    videoElement.addEventListener("pause", handlePause)
+    videoElement.addEventListener("error", handleError)
+
+    // Nettoyer les gestionnaires d'événements
+    return () => {
+      videoElement.removeEventListener("play", handlePlay)
+      videoElement.removeEventListener("pause", handlePause)
+      videoElement.removeEventListener("error", handleError)
+    }
+  }, [])
+
+  // Nettoyage lors du démontage du composant
+  useEffect(() => {
+    return () => {
+      if (cameraActive) {
+        stopCamera()
+      }
+
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+      }
+
+      if (simulationTimerRef.current) {
+        clearTimeout(simulationTimerRef.current)
+      }
+
+      if (sequenceTimerRef.current) {
+        clearTimeout(sequenceTimerRef.current)
+      }
+
+      if (countdownTimerRef.current) {
+        clearTimeout(countdownTimerRef.current)
+      }
+    }
+  }, [cameraActive])
+
+  // Obtenir le signe actuel et sa description
+  const getCurrentSignInfo = () => {
+    if (!detectedSign) return null
+
+    const signInfo = signSequence.find((s) => s.sign === detectedSign)
+    return signInfo || null
+  }
+
+  const currentSignInfo = getCurrentSignInfo()
+
   return (
     <div className="mt-4">
-      <Card className="overflow-hidden mb-4">
-        <div className="p-4">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-medium">Reconnaissance de langue des signes</h3>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={toggleCamera} disabled={loading}>
-                {cameraActive ? "Désactiver la caméra" : "Activer la caméra"}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setShowHelp(!showHelp)} aria-label="Aide">
-                <Info className="h-4 w-4" />
-              </Button>
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <Card className="overflow-hidden">
+        <div className="relative">
+          {/* Vidéo toujours présente dans le DOM, mais masquée si inactive */}
+          <div className={`bg-black ${!cameraActive ? "hidden" : ""}`}>
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-auto"
+              style={{ transform: "scaleX(-1)" }} // Effet miroir
+            />
+            <canvas
+              ref={canvasRef}
+              className="absolute top-0 left-0 w-full h-full"
+              style={{ transform: "scaleX(-1)" }} // Effet miroir
+            />
+
+            {/* Cadre de détection */}
+            <div
+              ref={detectionFrameRef}
+              className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
+                         border-4 rounded-md w-64 h-64 flex items-center justify-center
+                         ${
+                           handInFrame
+                             ? handDetected
+                               ? "border-green-500"
+                               : "border-yellow-500 animate-pulse"
+                             : "border-white border-dashed"
+                         }`}
+            >
+              {!handInFrame && (
+                <div className="text-center text-white bg-black/50 p-2 rounded">
+                  <Hand className="h-8 w-8 mx-auto mb-1" />
+                  <p className="text-sm">Placez votre main dans ce cadre</p>
+                </div>
+              )}
+              {handInFrame && !handDetected && (
+                <div className="text-center text-white bg-black/50 p-2 rounded animate-pulse">
+                  <p className="text-sm">Détection en cours...</p>
+                </div>
+              )}
             </div>
-          </div>
 
-          {loading && (
-            <div className="flex justify-center items-center p-4">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700"></div>
-              <span className="ml-2">Chargement du modèle...</span>
-            </div>
-          )}
-
-          {error && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          <div className="relative mb-4 border rounded-md overflow-hidden bg-black">
-            {cameraActive ? (
-              <>
-                {/* Ne pas cacher la vidéo, c'est nécessaire pour que HandPose puisse analyser l'image */}
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-auto"
-                  style={{ 
-                    minHeight: "300px",
-                    position: "absolute",
-                    opacity: 0  // Rendre la vidéo invisible mais présente dans le DOM
-                  }}
-                />
-                <canvas 
-                  ref={canvasRef} 
-                  className="w-full h-auto" 
-                  style={{ minHeight: "300px", zIndex: 1 }} 
-                />
-                {detectedSign && (
-                  <div className="absolute top-2 right-2 bg-purple-600 text-white px-3 py-1 rounded-full">
-                    {detectedSign}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-64 bg-gray-100 dark:bg-gray-800">
-                <p className="text-center text-muted-foreground mb-4">
-                  Activez la caméra pour commencer la reconnaissance de langue des signes
-                </p>
-                <Button onClick={toggleCamera} disabled={loading} variant="default">
-                  {loading ? "Chargement..." : "Activer la caméra"}
-                </Button>
+            {/* Compte à rebours */}
+            {handDetected && countdown !== null && (
+              <div className="absolute top-4 left-4 bg-black/70 text-white p-3 rounded-md">
+                <div className="font-bold mb-1">Prochain signe dans:</div>
+                <div className="text-2xl font-mono text-center">{countdown}s</div>
               </div>
             )}
           </div>
 
-          {prediction && (
-            <div className="mt-4 p-3 bg-purple-100 dark:bg-purple-900/20 rounded-md">
-              <p className="font-medium">
-                Signe détecté : <span className="text-purple-700 dark:text-purple-400">{prediction}</span>
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">Ce texte a été ajouté à votre message</p>
+          {/* Placeholder affiché uniquement si la caméra est inactive */}
+          {!cameraActive && (
+            <div className="h-0 flex items-center justify-center">
+              <div className="text-center text-muted-foreground">
+              </div>
+            </div>
+          )}
+
+          {/* Indicateur de statut */}
+          {cameraStatus === "requesting" && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+              <div className="text-center text-white">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
+                <p>Accès à la caméra...</p>
+              </div>
+            </div>
+          )}
+
+          {/* Affichage du signe détecté */}
+          {currentSignInfo && handDetected && (
+            <div className="absolute top-4 right-4 bg-black/70 text-white p-3 rounded-md">
+              <div className="font-bold mb-1">Signe détecté:</div>
+              <div className="flex items-center gap-2">
+                <span className="text-xl">{currentSignInfo.sign}</span>
+                <Badge variant="outline" className="bg-green-500/20 text-green-300">
+                  {confidence}%
+                </Badge>
+              </div>
+              <div className="text-xs mt-1 text-gray-300">{currentSignInfo.description}</div>
+              <div className="mt-2">
+                <Progress value={confidence} className="h-2" />
+              </div>
             </div>
           )}
         </div>
+
+        <div className="p-4 bg-muted">
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-between items-center">
+              <h3 className="text-sm font-medium">Reconnaissance de langue des signes</h3>
+              <Button
+                variant={cameraActive ? "destructive" : "default"}
+                size="sm"
+                onClick={toggleCamera}
+                disabled={cameraStatus === "requesting" || cameraStatus === "stopping"}
+                className="flex items-center gap-2"
+              >
+                <Camera className="h-4 w-4" />
+                <span>{cameraActive ? "Arrêter la caméra" : "Démarrer la caméra"}</span>
+              </Button>
+            </div>
+
+            {/* Afficher le statut actuel de la caméra */}
+            <div className="text-xs text-center text-muted-foreground">
+              Statut:{" "}
+              {cameraStatus === "playing"
+                ? "Caméra active"
+                : cameraStatus === "requesting"
+                  ? "Demande d'accès..."
+                  : cameraStatus === "connected"
+                    ? "Connexion établie"
+                    : cameraStatus === "stopping"
+                      ? "Arrêt en cours..."
+                      : cameraStatus === "error"
+                        ? "Erreur"
+                        : "Caméra inactive"}
+              {handDetected && " • Main détectée"}
+            </div>
+          </div>
+        </div>
       </Card>
 
-      {showHelp && (
-        <Alert className="mb-4">
-          <div className="space-y-2">
-            <p className="font-medium">Comment utiliser la reconnaissance de langue des signes :</p>
-            <ol className="list-decimal pl-5 text-sm">
-              <li>Activez la caméra et attendez que le modèle se charge</li>
-              <li>Placez votre main bien visible devant la caméra</li>
-              <li>Effectuez un des signes suivants :</li>
-              <ul className="list-disc pl-5 mt-1">
-                <li>
-                  <strong>Bonjour</strong> : Pouce levé, autres doigts fermés
-                </li>
-                <li>
-                  <strong>Merci</strong> : Main ouverte, doigts écartés
-                </li>
-                <li>
-                  <strong>Oui</strong> : Poing fermé avec pouce levé (similaire à "Bonjour")
-                </li>
-                <li>
-                  <strong>Non</strong> : Index levé, autres doigts fermés
-                </li>
-                <li>
-                  <strong>Comment ça va</strong> : Index et majeur levés en "V", autres doigts fermés
-                </li>
-              </ul>
-              <li>Le signe détecté sera automatiquement ajouté à votre message</li>
-            </ol>
+      {/* Séquence de signes */}
+      {cameraActive && (
+        <Card className="mt-4 p-4">
+          <h3 className="text-sm font-medium mb-2">Séquence de signes</h3>
+          <div className="grid grid-cols-4 gap-2">
+            {signSequence.map((sign, index) => (
+              <div
+                key={index}
+                className={`p-2 rounded-md text-center ${
+                  index === currentSignIndex && detectedSign
+                    ? "bg-green-100 dark:bg-green-900 border border-green-500"
+                    : index < currentSignIndex
+                      ? "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                      : "bg-gray-50 dark:bg-gray-900"
+                }`}
+              >
+                <div className="font-medium">{sign.sign}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={sign.description}>
+                  {sign.description.length > 20 ? sign.description.substring(0, 20) + "..." : sign.description}
+                </div>
+              </div>
+            ))}
           </div>
-        </Alert>
+        </Card>
       )}
+
+      {/* Instructions */}
+      {cameraActive && (
+        <Card className="mt-4 p-4 mb-24">
+          <h3 className="text-sm font-medium mb-2">Comment utiliser</h3>
+          <ol className="list-decimal pl-5 space-y-2 text-sm">
+            <li>Placez votre main dans le cadre au centre de l'écran</li>
+            <li>Maintenez votre main immobile jusqu'à ce que le cadre devienne vert</li>
+            <li>Le système va reconnaître automatiquement les signes toutes les 5 secondes</li>
+            <li>Suivez la séquence de signes affichée ci-dessus</li>
+          </ol>
+        </Card>
+      )}
+
+      {/* Signe actuellement détecté - Affichage en bas */}
+      {cameraActive && handDetected && detectedSign && (
+        <div className="fixed bottom-0 left-0 right-0 bg-green-600 text-white p-4 text-center shadow-lg z-50">
+          <div className="container mx-auto">
+            <h3 className="text-lg font-semibold mb-1">Signe détecté:</h3>
+            <div className="text-4xl font-bold mb-1">{detectedSign}</div>
+            {currentSignInfo && <div className="text-sm opacity-90">{currentSignInfo.description}</div>}
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
+
