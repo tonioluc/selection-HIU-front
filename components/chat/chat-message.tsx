@@ -56,7 +56,7 @@ export function ChatMessage({ message, currentUserId, selectedUserId, onSpeakTex
         >
           {isValidURL(message.content) ? (
             <iframe
-              src={message.content}
+              src={convertYouTubeUrl(message.content)}
               className="w-full h-full"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
