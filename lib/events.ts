@@ -35,7 +35,7 @@ const eventsData: Event[] = [
     category: "Art",
     accessibility: ["Accès fauteuil roulant", "Interprète LSF", "Documents en braille"],
     attendees: 18,
-    image: "/placeholder.svg?height=200&width=400",
+    image: "/art.jpeg?height=200&width=400",
     createdBy: "1",
   },
   {
@@ -48,7 +48,7 @@ const eventsData: Event[] = [
     category: "Social",
     accessibility: ["Accès fauteuil roulant", "Menu en braille", "Personnel formé"],
     attendees: 25,
-    image: "/placeholder.svg?height=200&width=400",
+    image: "/cafe.jpeg?height=200&width=400",
     createdBy: "2",
   },
   {
@@ -61,7 +61,7 @@ const eventsData: Event[] = [
     category: "Technologie",
     accessibility: ["Accès fauteuil roulant", "Boucle magnétique", "Sous-titrage en direct"],
     attendees: 42,
-    image: "/placeholder.svg?height=200&width=400",
+    image: "/conference.jpeg?height=200&width=400",
     createdBy: "3",
   },
   {
@@ -73,7 +73,7 @@ const eventsData: Event[] = [
     category: "Sport",
     accessibility: ["Accès fauteuil roulant", "Équipement adapté", "Vestiaires accessibles"],
     attendees: 30,
-    image: "/placeholder.svg?height=200&width=400",
+    image: "/sport1.jpeg?height=200&width=400",
     createdBy: "4",
   },
   {
@@ -85,7 +85,7 @@ const eventsData: Event[] = [
     category: "Bien-être",
     accessibility: ["Accès fauteuil roulant", "Interprète LSF", "Salle calme"],
     attendees: 15,
-    image: "/placeholder.svg?height=200&width=400",
+    image: "/parole.jpeg?height=200&width=400",
     createdBy: "5",
   },
   {
@@ -97,7 +97,7 @@ const eventsData: Event[] = [
     category: "Culture",
     accessibility: ["Accès fauteuil roulant", "Audiodescription", "Sous-titrage SME"],
     attendees: 35,
-    image: "/placeholder.svg?height=200&width=400",
+    image: "/projection.jpeg?height=200&width=400",
     createdBy: "1",
   },
 ]
