@@ -352,3 +352,14 @@ export const getAllUsers = (): User[] => {
   return mockUsers.map(({ password, ...user }) => user)
 }
 
+export const addreportedUsers = (newUser : 
+{
+  id: string,
+  name: string,
+  email: string,
+  reason: string,
+  reportedBy: string,
+  date: Date,
+}): void => {
+  reportedUsers.push(newUser);
+}

@@ -15,6 +15,7 @@ type MessageProps = {
     timestamp: Date
     type: "text" | "voice" | "sign" | "pictogram"
     read: boolean
+    positivity: boolean
   }
   currentUserId: string
   selectedUserId: string
@@ -46,7 +47,7 @@ export function ChatMessage({ message, currentUserId, selectedUserId, onSpeakTex
           className={cn(
             "rounded-lg px-4 py-2 group relative",
             isCurrentUser
-              ? "bg-purple-600 text-white"
+              ? (message.positivity ? "bg-purple-600 text-white" : "bg-red-600 text-white")
               : isSystem
                 ? "bg-gray-100 dark:bg-gray-800 w-full text-center"
                 : "bg-gray-200 dark:bg-gray-700",
@@ -81,6 +82,12 @@ export function ChatMessage({ message, currentUserId, selectedUserId, onSpeakTex
               {message.type === "voice" && "🎤"}
               {message.type === "sign" && "👋"}
               {message.type === "pictogram" && "😊"}
+            </span>
+          )}
+          {message.positivity == false && (
+            <span className="ml-1">
+              {" • "}
+              {"Message blessant ❌"}
             </span>
           )}
         </div>
