@@ -60,7 +60,20 @@
     "zod": "^3.24.1",
     "immer": "latest",
     "use-sync-external-store": "latest",
-    "zustand": "latest"
+    "expo": "latest",
+    "expo-asset": "latest",
+    "expo-file-system": "latest",
+    "expo-gl": "latest",
+    "react-native": "latest",
+    "three": "latest",
+    "@react-three/fiber": "latest",
+    "@tensorflow/tfjs-core": "latest",
+    "@tensorflow/tfjs-backend-webgl": "latest",
+    "@tensorflow/tfjs-converter": "latest",
+    "zustand": "latest",
+    "@react-three/drei": "latest",
+    "@tensorflow/tfjs": "latest",
+    "@tensorflow-models/handpose": "latest"
   },
   "devDependencies": {
     "@types/node": "^22",

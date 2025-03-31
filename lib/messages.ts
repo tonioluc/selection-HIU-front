@@ -12,6 +12,7 @@ export type Message = {
   timestamp: Date
   type: "text" | "voice" | "sign" | "pictogram"
   read: boolean
+  characterId?: string // Ajout du champ pour stocker l'ID du personnage
 }
 
 export type Conversation = {
@@ -23,10 +24,12 @@ export type Conversation = {
 type MessagesState = {
   messages: Message[]
   conversations: Conversation[]
+  selectedCharacterId: string
   getConversations: () => Conversation[]
   getMessages: (userId: string) => Message[]
   sendMessage: (message: Omit<Message, "id" | "timestamp" | "read">) => Promise<Message>
   markAsRead: (userId: string) => void
+  setSelectedCharacter: (characterId: string) => void
 }
 
 // Sample messages data
@@ -39,6 +42,7 @@ const messagesData: Message[] = [
     timestamp: new Date(2025, 2, 25, 10, 0),
     type: "text",
     read: true,
+    characterId: "handi",
   },
   {
     id: "2",
@@ -58,6 +62,7 @@ const messagesData: Message[] = [
     timestamp: new Date(2025, 2, 25, 10, 6),
     type: "text",
     read: true,
+    characterId: "handi",
   },
   {
     id: "4",
@@ -107,6 +112,17 @@ const messagesData: Message[] = [
   },
 ]
 
+// Fonction utilitaire pour s'assurer qu'un timestamp est un objet Date
+const ensureDateTimestamp = (message: Message): Message => {
+  if (!(message.timestamp instanceof Date)) {
+    return {
+      ...message,
+      timestamp: new Date(message.timestamp),
+    }
+  }
+  return message
+}
+
 // Generate conversations from messages
 const generateConversations = (messages: Message[], currentUserId = "1"): Conversation[] => {
   const conversationMap = new Map<string, { lastMessage: Message; unreadCount: number }>()
@@ -119,6 +135,11 @@ const generateConversations = (messages: Message[], currentUserId = "1"): Conver
           (m.senderId === "bot" && m.receiverId === currentUserId) ||
           (m.senderId === currentUserId && m.receiverId === "bot"),
       )
+      .map((message) => {
+        // S'assurer que timestamp est un objet Date
+        const timestamp = message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp)
+        return { ...message, timestamp }
+      })
       .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())[0] || {
       id: "0",
       senderId: "bot",
@@ -127,6 +148,7 @@ const generateConversations = (messages: Message[], currentUserId = "1"): Conver
       timestamp: new Date(),
       type: "text",
       read: true,
+      characterId: "handi",
     },
     unreadCount: messages.filter((m) => m.senderId === "bot" && m.receiverId === currentUserId && !m.read).length,
   })
@@ -142,7 +164,7 @@ const generateConversations = (messages: Message[], currentUserId = "1"): Conver
         conversationMap.set(otherUserId, { lastMessage: message, unreadCount: 0 })
       } else {
         const conversation = conversationMap.get(otherUserId)!
-        if (message.timestamp > conversation.lastMessage.timestamp) {
+        if (ensureDateTimestamp(message).timestamp > ensureDateTimestamp(conversation.lastMessage).timestamp) {
           conversation.lastMessage = message
         }
       }
@@ -158,7 +180,7 @@ const generateConversations = (messages: Message[], currentUserId = "1"): Conver
         })
       } else {
         const conversation = conversationMap.get(otherUserId)!
-        if (message.timestamp > conversation.lastMessage.timestamp) {
+        if (ensureDateTimestamp(message).timestamp > ensureDateTimestamp(conversation.lastMessage).timestamp) {
           conversation.lastMessage = message
         }
         if (!message.read) {
@@ -181,6 +203,7 @@ export const useMessages = create<MessagesState>()(
     (set, get) => ({
       messages: messagesData,
       conversations: [],
+      selectedCharacterId: "handi", // Personnage par défaut
       getConversations: () => {
         // This would normally use the current user's ID from auth
         const conversations = generateConversations(get().messages)
@@ -195,6 +218,15 @@ export const useMessages = create<MessagesState>()(
               (message.senderId === userId && message.receiverId === "1") ||
               (message.senderId === "1" && message.receiverId === userId),
           )
+          .map((message) => {
+            // S'assurer que timestamp est un objet Date
+            const timestamp = message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp)
+
+            return {
+              ...message,
+              timestamp,
+            }
+          })
           .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
       },
       sendMessage: async (messageData) => {
@@ -224,6 +256,7 @@ export const useMessages = create<MessagesState>()(
               timestamp: new Date(),
               type: "text",
               read: false,
+              characterId: get().selectedCharacterId, // Utiliser le personnage sélectionné
             }
 
             set((state) => ({
@@ -242,6 +275,9 @@ export const useMessages = create<MessagesState>()(
               : message,
           ),
         }))
+      },
+      setSelectedCharacter: (characterId) => {
+        set({ selectedCharacterId: characterId })
       },
     }),
     {
@@ -298,7 +334,7 @@ export const getUserNameForConversation = (userId: string): string => {
 // Helper function to get user avatar for conversations
 export const getUserAvatarForConversation = (userId: string): string => {
   if (userId === "bot") {
-    return "/placeholder.svg?height=40&width=40"
+    return "/placeholder.svg?height=40&width=40&text=H&bg=purple"
   }
 
   const user = getUserById(userId)

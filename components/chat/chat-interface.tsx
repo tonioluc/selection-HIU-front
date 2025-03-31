@@ -7,10 +7,12 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
-import { Mic, MicOff, Send, Video, VideoOff, MessageSquare, Smile, Volume2, VolumeX } from "lucide-react"
+import { Mic, MicOff, Send, Video, MessageSquare, Smile, Volume2, VolumeX } from "lucide-react"
 import { ChatMessage } from "./chat-message"
 import { SignLanguageView } from "./sign-language-view"
 import { PictogramSelector } from "./pictogram-selector"
+import { CharacterSelector, type Character } from "./character-selector"
+import { CharacterMessage } from "./character-message"
 import { useAuth } from "@/lib/auth"
 import { useToast } from "@/hooks/use-toast"
 import { useMessages, type Message } from "@/lib/messages"
@@ -31,14 +33,21 @@ type ChatInterfaceProps = {
 export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
   const { user, isAuthenticated } = useAuth()
   const { toast } = useToast()
-  const { getMessages, sendMessage } = useMessages()
+  const { getMessages, sendMessage, selectedCharacterId, setSelectedCharacter } = useMessages()
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState("")
   const [activeTab, setActiveTab] = useState("text")
   const [isRecording, setIsRecording] = useState(false)
-  const [isVideoOn, setIsVideoOn] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [selectedCharacter, setSelectedCharacterState] = useState<Character>({
+    id: selectedCharacterId || "handi",
+    name: "Handi",
+    avatar: "/placeholder.svg?height=200&width=200&text=H&bg=purple",
+    description: "L'assistant virtuel par défaut, toujours prêt à vous aider.",
+  })
+  const [showCharacterMessage, setShowCharacterMessage] = useState(false)
+  const [currentCharacterMessage, setCurrentCharacterMessage] = useState<Message | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [speechRecognition, setSpeechRecognition] = useState<any>(null)
 
@@ -46,9 +55,25 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
   useEffect(() => {
     if (selectedUserId) {
       const userMessages = getMessages(selectedUserId)
-      setMessages(userMessages)
+
+      // Filtrer pour n'afficher que les messages entre l'utilisateur connecté et le destinataire sélectionné
+      const filteredMessages = userMessages.filter(
+        (msg) =>
+          (msg.senderId === user?.id && msg.receiverId === selectedUserId) ||
+          (msg.senderId === selectedUserId && msg.receiverId === user?.id),
+      )
+
+      setMessages(filteredMessages)
+
+      // Vérifier s'il y a un message du bot à afficher avec le personnage
+      const lastBotMessage = filteredMessages.filter((msg) => msg.senderId === "bot").pop()
+
+      if (lastBotMessage && selectedUserId === "bot") {
+        setCurrentCharacterMessage(lastBotMessage)
+        setShowCharacterMessage(true)
+      }
     }
-  }, [selectedUserId, getMessages])
+  }, [selectedUserId, getMessages, user?.id])
 
   // Initialize speech recognition
   useEffect(() => {
@@ -75,7 +100,7 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+  }, [messages, showCharacterMessage])
 
   // Set preferred communication mode based on user preferences
   useEffect(() => {
@@ -108,6 +133,24 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
 
       setMessages((prev) => [...prev, newMessage])
       setInputValue("")
+
+      // Si c'est un message au bot, on attend la réponse pour l'afficher avec le personnage
+      if (selectedUserId === "bot") {
+        // La réponse sera ajoutée automatiquement par le hook useMessages
+        // On attend un peu pour simuler le temps de réponse
+        setTimeout(() => {
+          // On récupère le dernier message qui devrait être la réponse du bot
+          const botMessages = getMessages(selectedUserId).filter(
+            (msg) => msg.senderId === "bot" && msg.timestamp > newMessage.timestamp,
+          )
+
+          if (botMessages.length > 0) {
+            const latestBotMessage = botMessages[botMessages.length - 1]
+            setCurrentCharacterMessage(latestBotMessage)
+            setShowCharacterMessage(true)
+          }
+        }, 1200)
+      }
     } catch (error) {
       toast({
         title: "Erreur",
@@ -136,10 +179,6 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
     }
 
     setIsRecording(!isRecording)
-  }
-
-  const toggleVideo = () => {
-    setIsVideoOn(!isVideoOn)
   }
 
   const speakText = (text: string) => {
@@ -184,9 +223,40 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
     setInputValue(text)
   }
 
+  const handleCharacterSelect = (character: Character) => {
+    setSelectedCharacterState(character)
+    setSelectedCharacter(character.id)
+
+    // Afficher un message de bienvenue avec le nouveau personnage
+    setCurrentCharacterMessage({
+      id: String(Date.now()),
+      senderId: "bot",
+      receiverId: user?.id || "1",
+      content: `Bonjour, je suis ${character.name}. Comment puis-je vous aider aujourd'hui ?`,
+      timestamp: new Date(),
+      type: "text",
+      read: false,
+      characterId: character.id,
+    })
+    setShowCharacterMessage(true)
+  }
+
+  const handleCharacterMessageFinish = () => {
+    // Ajouter le message du personnage à la liste des messages une fois l'animation terminée
+    if (currentCharacterMessage && !messages.some((m) => m.id === currentCharacterMessage.id)) {
+      setMessages((prev) => [...prev, currentCharacterMessage])
+    }
+    // Cacher le message animé
+    setShowCharacterMessage(false)
+  }
+
   return (
     <Card className="w-full max-w-4xl mx-auto">
       <CardContent className="p-0">
+        {selectedUserId === "bot" && (
+          <CharacterSelector onSelect={handleCharacterSelect} selectedCharacterId={selectedCharacter.id} />
+        )}
+
         <Tabs defaultValue="text" value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div className="border-b px-4 py-2">
             <TabsList className="grid grid-cols-4">
@@ -220,6 +290,16 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
                   selectedUserId={selectedUserId}
                 />
               ))}
+
+              {showCharacterMessage && currentCharacterMessage && (
+                <CharacterMessage
+                  message={currentCharacterMessage.content}
+                  character={selectedCharacter}
+                  onFinish={handleCharacterMessageFinish}
+                  onSpeakEnd={() => {}}
+                />
+              )}
+
               <div ref={messagesEndRef} />
             </div>
 
@@ -312,27 +392,7 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
-                <div className="flex justify-between items-center mt-2">
-                  <Button onClick={toggleVideo} variant={isVideoOn ? "destructive" : "default"}>
-                    {isVideoOn ? (
-                      <>
-                        <VideoOff className="h-4 w-4 mr-2" />
-                        Arrêter la caméra
-                      </>
-                    ) : (
-                      <>
-                        <Video className="h-4 w-4 mr-2" />
-                        Activer la caméra
-                      </>
-                    )}
-                  </Button>
-                  {isVideoOn && (
-                    <p className="text-sm text-muted-foreground">
-                      Faites des signes devant la caméra pour qu'ils soient traduits
-                    </p>
-                  )}
-                </div>
-                {isVideoOn && <SignLanguageView onSignDetected={handleSignLanguageResult} />}
+                <SignLanguageView onSignDetected={handleSignLanguageResult} />
               </div>
             </TabsContent>
 

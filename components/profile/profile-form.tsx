@@ -34,6 +34,7 @@ export function ProfileForm({ user }: ProfileFormProps) {
   const [isUploading, setIsUploading] = useState(false)
   const { toast } = useToast()
   const { updateUser } = useAuth()
+  const [isImageDialogOpen, setIsImageDialogOpen] = useState(false)
 
   const [formData, setFormData] = useState({
     name: user.name,
@@ -135,11 +136,17 @@ export function ProfileForm({ user }: ProfileFormProps) {
     setIsUploading(true)
 
     try {
-      // Simulate photo upload
-      await new Promise((resolve) => setTimeout(resolve, 1500))
+      // Simuler le téléchargement d'une photo
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      // Générer une couleur aléatoire pour l'avatar
+      const colors = ["red", "blue", "green", "purple", "orange", "pink", "teal"]
+      const randomColor = colors[Math.floor(Math.random() * colors.length)]
+
+      const newAvatarUrl = `/placeholder.svg?height=100&width=100&text=${user.name.substring(0, 2).toUpperCase()}&bg=${randomColor}`
 
       const success = await updateUser({
-        avatar: `/placeholder.svg?height=100&width=100&text=${user.name.substring(0, 2).toUpperCase()}&bg=random`,
+        avatar: newAvatarUrl,
       })
 
       if (success) {
@@ -147,6 +154,9 @@ export function ProfileForm({ user }: ProfileFormProps) {
           title: "Photo de profil mise à jour",
           description: "Votre photo de profil a été mise à jour avec succès.",
         })
+
+        // Forcer un rafraîchissement de la page pour voir les changements
+        window.location.reload()
       } else {
         toast({
           title: "Erreur",
@@ -162,6 +172,7 @@ export function ProfileForm({ user }: ProfileFormProps) {
       })
     } finally {
       setIsUploading(false)
+      setIsImageDialogOpen(false)
     }
   }
 
@@ -195,7 +206,7 @@ export function ProfileForm({ user }: ProfileFormProps) {
             <AvatarFallback>{user.name.substring(0, 2).toUpperCase()}</AvatarFallback>
           </Avatar>
 
-          <Dialog>
+          <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="w-full">
                 Changer la photo

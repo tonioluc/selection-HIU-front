@@ -89,7 +89,6 @@ export function VoiceAssistant() {
     }
   }, [isListening])
 
-  // Modifier la fonction toggleListening pour éviter les boucles
   const toggleListening = () => {
     if (!speechRecognition) {
       toast({
@@ -101,37 +100,42 @@ export function VoiceAssistant() {
     }
 
     if (isListening) {
+      // Si on écoute déjà, on arrête
       speechRecognition.stop()
       setIsListening(false)
       setTranscript("")
     } else {
-      // Assurons-nous que l'assistant ne parle pas avant de commencer à écouter
+      // Si on ne parle pas déjà, on commence à écouter
       if (isSpeaking) {
         window.speechSynthesis.cancel()
         setIsSpeaking(false)
       }
 
-      speechRecognition.start()
-      setIsListening(true)
-      speak(
-        isAuthenticated
-          ? `Bonjour ${user?.name}. Je vous écoute. Comment puis-je vous aider ?`
-          : "Je vous écoute. Comment puis-je vous aider ?",
-      )
-      // Après avoir parlé, l'écoute sera arrêtée par la fonction speak
+      // Commencer à écouter
+      try {
+        speechRecognition.start()
+        setIsListening(true)
+      } catch (error) {
+        console.error("Erreur lors du démarrage de la reconnaissance vocale:", error)
+        // Réinitialiser en cas d'erreur
+        setIsListening(false)
+      }
     }
   }
 
-  // Modifier la fonction speak pour arrêter l'écoute pendant que l'assistant parle
   const speak = (text: string) => {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      // Arrêter l'écoute pendant que l'assistant parle pour éviter les boucles
-      if (isListening && speechRecognition) {
-        speechRecognition.stop()
-        setIsListening(false)
+      // TOUJOURS arrêter l'écoute avant de parler
+      if (speechRecognition) {
+        try {
+          speechRecognition.stop()
+        } catch (error) {
+          console.error("Erreur lors de l'arrêt de la reconnaissance vocale:", error)
+        }
       }
+      setIsListening(false)
 
-      // Cancel any ongoing speech
+      // Annuler toute synthèse vocale en cours
       window.speechSynthesis.cancel()
 
       const utterance = new SpeechSynthesisUtterance(text)
@@ -143,7 +147,7 @@ export function VoiceAssistant() {
 
       utterance.onend = () => {
         setIsSpeaking(false)
-        // Ne pas reprendre automatiquement l'écoute pour éviter les boucles
+        // Ne JAMAIS reprendre l'écoute automatiquement
       }
 
       window.speechSynthesis.speak(utterance)
@@ -157,34 +161,38 @@ export function VoiceAssistant() {
     }
   }
 
-  // Modifier la fonction processCommand pour arrêter l'écoute après avoir capté une commande
   const processCommand = (command: string) => {
-    // Arrêter l'écoute après avoir capté une commande
-    if (isListening && speechRecognition) {
-      speechRecognition.stop()
-      setIsListening(false)
+    // TOUJOURS arrêter l'écoute après avoir capté une commande
+    if (speechRecognition) {
+      try {
+        speechRecognition.stop()
+      } catch (error) {
+        console.error("Erreur lors de l'arrêt de la reconnaissance vocale:", error)
+      }
     }
+    setIsListening(false)
+
+    // Traiter la commande seulement si elle n'est pas vide
+    if (!command.trim()) return
 
     const lowerCommand = command.toLowerCase()
 
-    // Le reste du code de processCommand reste inchangé...
-
-    // Check if user is authenticated for protected commands
-    if (!isAuthenticated) {
-      if (
-        lowerCommand.includes("envoie") ||
-        lowerCommand.includes("message") ||
-        lowerCommand.includes("profil") ||
-        lowerCommand.includes("tableau de bord") ||
-        lowerCommand.includes("dashboard")
-      ) {
-        speak("Vous devez être connecté pour utiliser cette fonctionnalité. Souhaitez-vous vous connecter ?")
+    // Commandes de salutation
+    if (lowerCommand.includes("dis bonjour") || lowerCommand.includes("dit bonjour")) {
+      // Extraire le nom de la personne
+      const nameMatch = lowerCommand.match(/(?:dis|dit) bonjour (?:à|a) (.+)/i)
+      if (nameMatch && nameMatch[1]) {
+        const name = nameMatch[1].trim()
+        speak(`Bonjour ${name}, comment allez-vous aujourd'hui ?`)
+        return
+      } else {
+        speak("Bonjour ! Comment puis-je vous aider aujourd'hui ?")
         return
       }
     }
 
-    // Send message or image commands
-    if (isAuthenticated && (lowerCommand.includes("envoie") || lowerCommand.includes("envoyer"))) {
+    // Commandes de message
+    if (lowerCommand.includes("envoie") || lowerCommand.includes("envoyer")) {
       if (lowerCommand.includes("image") || lowerCommand.includes("photo")) {
         // Extract recipient name
         const toMatch = lowerCommand.match(/à\s+(\w+)/i) || lowerCommand.match(/pour\s+(\w+)/i)
@@ -226,7 +234,7 @@ export function VoiceAssistant() {
           if (matchedContact && messageContent) {
             // Send the message
             sendMessage({
-              senderId: user!.id,
+              senderId: user?.id || "1",
               receiverId: matchedContact.userId,
               content: messageContent,
               type: "text",
@@ -252,26 +260,14 @@ export function VoiceAssistant() {
       speak("Je vous redirige vers la page d'accueil.")
       router.push("/")
     } else if (lowerCommand.includes("tableau de bord") || lowerCommand.includes("dashboard")) {
-      if (isAuthenticated) {
-        speak("Je vous redirige vers le tableau de bord.")
-        router.push("/dashboard")
-      } else {
-        speak("Vous devez être connecté pour accéder au tableau de bord. Souhaitez-vous vous connecter ?")
-      }
+      speak("Je vous redirige vers le tableau de bord.")
+      router.push("/dashboard")
     } else if (lowerCommand.includes("chat") || lowerCommand.includes("messagerie")) {
-      if (isAuthenticated) {
-        speak("Je vous redirige vers le chat.")
-        router.push("/chat")
-      } else {
-        speak("Vous devez être connecté pour accéder au chat. Souhaitez-vous vous connecter ?")
-      }
+      speak("Je vous redirige vers le chat.")
+      router.push("/chat")
     } else if (lowerCommand.includes("profil") && !lowerCommand.includes("profils")) {
-      if (isAuthenticated) {
-        speak("Je vous redirige vers votre profil.")
-        router.push("/profile")
-      } else {
-        speak("Vous devez être connecté pour accéder à votre profil. Souhaitez-vous vous connecter ?")
-      }
+      speak("Je vous redirige vers votre profil.")
+      router.push("/profile")
     } else if (lowerCommand.includes("profils") || lowerCommand.includes("utilisateurs")) {
       speak("Je vous redirige vers la liste des profils.")
       router.push("/profiles")
@@ -299,46 +295,26 @@ export function VoiceAssistant() {
       speak("Je vous redirige vers la page de l'équipe.")
       router.push("/team")
     } else if (lowerCommand.includes("admin") || lowerCommand.includes("administration")) {
-      if (isAuthenticated && user?.role === "admin") {
-        speak("Je vous redirige vers le panneau d'administration.")
-        router.push("/admin")
-      } else {
-        speak("Vous n'avez pas les droits d'accès à l'administration.")
-      }
+      speak("Je vous redirige vers le panneau d'administration.")
+      router.push("/admin")
     }
     // Status commands
     else if (lowerCommand.includes("qui suis-je") || lowerCommand.includes("mon nom")) {
-      if (isAuthenticated) {
-        speak(`Vous êtes ${user?.name}. Vous êtes connecté à HandiConnect.`)
-      } else {
-        speak("Vous n'êtes pas connecté. Souhaitez-vous vous connecter ?")
-      }
+      speak(`Vous êtes ${user?.name || "un utilisateur connecté"}. Vous êtes connecté à HandiConnect.`)
     } else if (lowerCommand.includes("mes messages") || lowerCommand.includes("mes conversations")) {
-      if (isAuthenticated) {
-        const conversations = getConversations()
-        const unreadCount = conversations.reduce((count, convo) => count + convo.unreadCount, 0)
+      const conversations = getConversations()
+      const unreadCount = conversations.reduce((count, convo) => count + convo.unreadCount, 0)
 
-        speak(`Vous avez ${conversations.length} conversations et ${unreadCount} messages non lus.`)
-      } else {
-        speak("Vous devez être connecté pour accéder à vos messages.")
-      }
+      speak(`Vous avez ${conversations.length} conversations et ${unreadCount} messages non lus.`)
     } else if (lowerCommand.includes("mes événements") || lowerCommand.includes("mes evenements")) {
-      if (isAuthenticated) {
-        speak(`Vous êtes inscrit à ${user?.registeredEvents.length} événements.`)
-      } else {
-        speak("Vous devez être connecté pour accéder à vos événements.")
-      }
+      speak(`Vous êtes inscrit à ${user?.registeredEvents?.length || 0} événements.`)
     } else if (lowerCommand.includes("mes groupes")) {
-      if (isAuthenticated) {
-        speak(`Vous êtes membre de ${user?.joinedGroups.length} groupes.`)
-      } else {
-        speak("Vous devez être connecté pour accéder à vos groupes.")
-      }
+      speak(`Vous êtes membre de ${user?.joinedGroups?.length || 0} groupes.`)
     }
     // Help commands
     else if (lowerCommand.includes("aide") || lowerCommand.includes("help")) {
       speak(
-        "Je peux vous aider à naviguer sur HandiConnect. Vous pouvez me demander d'aller à la page d'accueil, au tableau de bord, au chat, aux profils, aux événements, aux groupes, à la page de connexion ou d'inscription. Si vous êtes connecté, vous pouvez aussi envoyer des messages ou des images à vos contacts en disant par exemple 'envoie un message à Marie' ou 'envoie une image à Thomas'.",
+        "Je peux vous aider à naviguer sur HandiConnect. Vous pouvez me demander d'aller à la page d'accueil, au tableau de bord, au chat, aux profils, aux événements, aux groupes. Vous pouvez aussi me demander de dire bonjour à quelqu'un, par exemple 'dis bonjour à Thomas'. Ou encore envoyer des messages comme 'envoie un message à Marie'.",
       )
     }
     // Close assistant
@@ -346,7 +322,13 @@ export function VoiceAssistant() {
       speak("Au revoir !")
       setIsOpen(false)
       setIsListening(false)
-      speechRecognition.stop()
+      if (speechRecognition) {
+        try {
+          speechRecognition.stop()
+        } catch (error) {
+          console.error("Erreur lors de l'arrêt de la reconnaissance vocale:", error)
+        }
+      }
     }
     // Unknown command
     else {
@@ -357,12 +339,12 @@ export function VoiceAssistant() {
   }
 
   const handleSendImage = async () => {
-    if (!selectedContact || !isAuthenticated) return
+    if (!selectedContact) return
 
     try {
       // Send a message with image description
       await sendMessage({
-        senderId: user!.id,
+        senderId: user?.id || "1",
         receiverId: selectedContact,
         content: `[Image] ${imageCaption || "Image sans description"}`,
         type: "text",
@@ -424,8 +406,6 @@ export function VoiceAssistant() {
 
               {transcript && <div className="bg-muted p-2 rounded-md mb-2 text-sm">"{transcript}"</div>}
 
-              {/* Ajoutons un bouton pour reprendre l'écoute après que l'assistant a parlé */}
-              {/* Dans la partie JSX où se trouvent les boutons de contrôle */}
               <div className="flex justify-center gap-2">
                 <Button
                   variant={isListening ? "destructive" : "default"}
@@ -443,7 +423,6 @@ export function VoiceAssistant() {
                 )}
               </div>
 
-              {/* Ajoutons un message explicatif */}
               {!isListening && !isSpeaking && transcript && (
                 <p className="text-xs text-muted-foreground mt-2">
                   Cliquez à nouveau sur le microphone pour poser une autre question
@@ -454,56 +433,47 @@ export function VoiceAssistant() {
             <div className="text-sm">
               <p className="font-medium mb-1">Exemples de commandes :</p>
               <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+                <li>"Dis bonjour à Thomas"</li>
                 <li>"Va à la page d'accueil"</li>
                 <li>"Ouvre le chat"</li>
                 <li>"Montre-moi les événements"</li>
-                {isAuthenticated ? (
-                  <>
-                    <li>"Envoie un message à [nom]"</li>
-                    <li>"Envoie une image à [nom]"</li>
-                    <li>"Combien ai-je de messages non lus ?"</li>
-                  </>
-                ) : (
-                  <li>"Se connecter"</li>
-                )}
+                <li>"Envoie un message à Marie"</li>
                 <li>"Aide-moi"</li>
               </ul>
             </div>
 
-            {isAuthenticated && (
-              <div className="mt-4 pt-4 border-t">
-                <p className="text-sm font-medium mb-2">Actions rapides :</p>
-                <div className="grid grid-cols-3 gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex flex-col items-center h-auto py-2"
-                    onClick={() => router.push("/chat")}
-                  >
-                    <MessageSquare className="h-4 w-4 mb-1" />
-                    <span className="text-xs">Chat</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex flex-col items-center h-auto py-2"
-                    onClick={() => router.push("/events")}
-                  >
-                    <Calendar className="h-4 w-4 mb-1" />
-                    <span className="text-xs">Événements</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex flex-col items-center h-auto py-2"
-                    onClick={() => router.push("/groups")}
-                  >
-                    <Users className="h-4 w-4 mb-1" />
-                    <span className="text-xs">Groupes</span>
-                  </Button>
-                </div>
+            <div className="mt-4 pt-4 border-t">
+              <p className="text-sm font-medium mb-2">Actions rapides :</p>
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex flex-col items-center h-auto py-2"
+                  onClick={() => router.push("/chat")}
+                >
+                  <MessageSquare className="h-4 w-4 mb-1" />
+                  <span className="text-xs">Chat</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex flex-col items-center h-auto py-2"
+                  onClick={() => router.push("/events")}
+                >
+                  <Calendar className="h-4 w-4 mb-1" />
+                  <span className="text-xs">Événements</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex flex-col items-center h-auto py-2"
+                  onClick={() => router.push("/groups")}
+                >
+                  <Users className="h-4 w-4 mb-1" />
+                  <span className="text-xs">Groupes</span>
+                </Button>
               </div>
-            )}
+            </div>
           </div>
         </div>
       )}
