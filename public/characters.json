@@ -1,0 +1,42 @@
+{
+    "characters": [
+      {
+        "id": "handi",
+        "name": "Emma",
+        "avatar": "/placeholder.svg?height=200&width=200&text=E&bg=red",
+        "description": "L'assistante virtuelle par défaut, toujours prête à vous aider.",
+        "color": "#ef4444",
+        "imageUrl": "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Gen-3%20Alpha%20Turbo%201698157979%2C%20une%20jolie%20fille%20en%20m%2C%20Cropped%20-%20487209590_%2C%20M%205.mp4.gif-HVVInvhGQRHNrhBLmKRZWRAboNSnHY.jpeg",
+        "animatedImageUrl": "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Gen-3%20Alpha%20Turbo%201698157979%2C%20une%20jolie%20fille%20en%20m%2C%20Cropped%20-%20487209590_%2C%20M%205.mp4.gif-HVVInvhGQRHNrhBLmKRZWRAboNSnHY.jpeg"
+      },
+      {
+        "id": "leo",
+        "name": "Sophia",
+        "avatar": "/placeholder.svg?height=200&width=200&text=S&bg=purple",
+        "description": "Spécialiste en accessibilité et en technologies adaptatives.",
+        "color": "#8b5cf6",
+        "imageUrl": "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Gen-3%20Alpha%20Turbo%203340037805%2C%20animer%20les%20l%C3%A8vres%20co%2C%20Cropped%20-%20download%20%28%2C%20M%205.mp4.gif-8fVn6P4MFTvnooLJt3PVZ9kGNITmrv.jpeg",
+        "animatedImageUrl": "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Gen-3%20Alpha%20Turbo%203340037805%2C%20animer%20les%20l%C3%A8vres%20co%2C%20Cropped%20-%20download%20%28%2C%20M%205.mp4.gif-8fVn6P4MFTvnooLJt3PVZ9kGNITmrv.jpeg"
+      },
+      {
+        "id": "emma",
+        "name": "Lily",
+        "avatar": "/placeholder.svg?height=200&width=200&text=L&bg=pink",
+        "description": "Experte en communication alternative et augmentée.",
+        "color": "#ec4899",
+        "imageUrl": "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Gen-3%20Alpha%20Turbo%203553091664%2C%20une%20jolie%20fille%20en%20m%2C%20Cropped%20-%20download%20%28%2C%20M%205.mp4.gif-lJGJYoa0LdxZGMHlCJoYJoGLRLPGjZ.jpeg",
+        "animatedImageUrl": "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Gen-3%20Alpha%20Turbo%203553091664%2C%20une%20jolie%20fille%20en%20m%2C%20Cropped%20-%20download%20%28%2C%20M%205.mp4.gif-lJGJYoa0LdxZGMHlCJoYJoGLRLPGjZ.jpeg"
+      },
+      {
+        "id": "max",
+        "name": "Max",
+        "avatar": "/placeholder.svg?height=200&width=200&text=M&bg=teal",
+        "description": "Spécialiste en langue des signes et en communication non-verbale.",
+        "color": "#14b8a6",
+        "imageUrl": "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Gen-3%20Alpha%20Turbo%203252886586%2C%20animer%20les%20l%C3%A8vres%20co%2C%20Cropped%20-%20download%20%28%2C%20M%205.mp4.gif-n0Xphc4K89ob49mhG7ew8qsbRHCtgK.jpeg",
+        "animatedImageUrl": "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Gen-3%20Alpha%20Turbo%203252886586%2C%20animer%20les%20l%C3%A8vres%20co%2C%20Cropped%20-%20download%20%28%2C%20M%205.mp4.gif-n0Xphc4K89ob49mhG7ew8qsbRHCtgK.jpeg"
+      }
+    ]
+  }
+  
+  

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
-import { Mic, MicOff, Send, Video, MessageSquare, Smile, Volume2, VolumeX } from "lucide-react"
+import { Mic, MicOff, Send, Video, MessageSquare, Smile, Volume2, VolumeX, Loader2 } from "lucide-react"
 import { ChatMessage } from "./chat-message"
 import { SignLanguageView } from "./sign-language-view"
 import { PictogramSelector } from "./pictogram-selector"
@@ -16,6 +16,8 @@ import { CharacterMessage } from "./character-message"
 import { useAuth } from "@/lib/auth"
 import { useToast } from "@/hooks/use-toast"
 import { useMessages, type Message } from "@/lib/messages"
+import { callMistralAPI, isValidURL } from "@/lib/api-service"
+import { generateSpeech, playAudio, stopAudio } from "@/lib/openai-tts"
 
 // Declare SpeechRecognition interface
 declare global {
@@ -40,40 +42,68 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
   const [isRecording, setIsRecording] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [isMuted, setIsMuted] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const [selectedCharacter, setSelectedCharacterState] = useState<Character>({
-    id: selectedCharacterId || "handi",
-    name: "Handi",
-    avatar: "/placeholder.svg?height=200&width=200&text=H&bg=purple",
+    id: selectedCharacterId || "assistant",
+    name: "Assistant",
+    avatar: "/placeholder.svg?height=200&width=200&text=A&bg=blue",
     description: "L'assistant virtuel par défaut, toujours prêt à vous aider.",
   })
   const [showCharacterMessage, setShowCharacterMessage] = useState(false)
   const [currentCharacterMessage, setCurrentCharacterMessage] = useState<Message | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [speechRecognition, setSpeechRecognition] = useState<any>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
-  // Load messages when selectedUserId changes
+  // Modifier la fonction de chargement des messages pour filtrer par personnage
+  // Remplacer le bloc useEffect qui charge les messages par celui-ci:
+
+  // Load messages when selectedUserId changes or when character changes
   useEffect(() => {
     if (selectedUserId) {
-      const userMessages = getMessages(selectedUserId)
+      // Mettre à jour l'appel à getMessages pour passer le characterId
+      // Remplacer la ligne:
+      // const userMessages = getMessages(selectedUserId);
+      // Par:
+      const userMessages = getMessages(selectedUserId, selectedCharacter.id)
 
-      // Filtrer pour n'afficher que les messages entre l'utilisateur connecté et le destinataire sélectionné
-      const filteredMessages = userMessages.filter(
-        (msg) =>
-          (msg.senderId === user?.id && msg.receiverId === selectedUserId) ||
-          (msg.senderId === selectedUserId && msg.receiverId === user?.id),
-      )
+      // Filtrer les messages en fonction du personnage sélectionné
+      const filteredMessages = userMessages.filter((msg) => {
+        // Si c'est un message de l'utilisateur vers le bot, toujours l'inclure
+        if (msg.senderId === user?.id && msg.receiverId === selectedUserId) {
+          return true
+        }
+
+        // Si c'est un message du bot vers l'utilisateur, vérifier le characterId
+        if (msg.senderId === selectedUserId && msg.receiverId === user?.id) {
+          // Si c'est un message du bot, vérifier que le characterId correspond
+          if (msg.senderId === "bot") {
+            // Si le message n'a pas de characterId, l'inclure par défaut
+            if (!msg.characterId) return true
+
+            // Sinon, vérifier que le characterId correspond au personnage sélectionné
+            return msg.characterId === selectedCharacter.id
+          }
+          return true
+        }
+
+        return false
+      })
 
       setMessages(filteredMessages)
 
       // Vérifier s'il y a un message du bot à afficher avec le personnage
-      const lastBotMessage = filteredMessages.filter((msg) => msg.senderId === "bot").pop()
+      const lastBotMessage = filteredMessages
+        .filter((msg) => msg.senderId === "bot" && msg.characterId === selectedCharacter.id)
+        .pop()
 
       if (lastBotMessage && selectedUserId === "bot") {
         setCurrentCharacterMessage(lastBotMessage)
         setShowCharacterMessage(true)
       }
     }
-  }, [selectedUserId, getMessages, user?.id])
+  }, [selectedUserId, getMessages, user?.id, selectedCharacter.id])
 
   // Initialize speech recognition
   useEffect(() => {
@@ -109,6 +139,65 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
     }
   }, [user])
 
+  // Mise à jour de la fonction speakText pour utiliser la solution de secours
+  const speakText = async (text: string) => {
+    if (isMuted) {
+      console.log("Lecture ignorée - son désactivé")
+      return
+    }
+
+    try {
+      setIsSpeaking(true)
+      console.log("ChatInterface - Génération de la parole pour:", text.substring(0, 50) + "...")
+
+      // Arrêter l'audio précédent si nécessaire
+      if (audioRef.current) {
+        stopAudio(audioRef.current)
+      }
+
+      // Générer l'audio avec OpenAI TTS via notre API
+      const url = await generateSpeech(text, "alloy")
+
+      if (!url) {
+        console.error("Échec de la génération audio - URL null")
+        setIsSpeaking(false)
+        return
+      }
+
+      // Jouer l'audio (avec le texte pour la solution de secours)
+      console.log("Tentative de lecture audio...")
+      audioRef.current = playAudio(url, text, () => {
+        console.log("Callback de fin de lecture appelé")
+        setIsSpeaking(false)
+      })
+
+      if (!audioRef.current) {
+        console.error("Échec de la création de l'élément audio")
+        setIsSpeaking(false)
+      }
+    } catch (error) {
+      console.error("Erreur lors de la synthèse vocale:", error)
+      setIsSpeaking(false)
+    }
+  }
+
+  // Nettoyer les ressources audio lors du démontage du composant
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        stopAudio(audioRef.current)
+      }
+    }
+  }, [])
+
+  const stopSpeaking = () => {
+    if (audioRef.current) {
+      stopAudio(audioRef.current)
+    }
+    setIsSpeaking(false)
+  }
+
+  // Modifier la fonction handleSendMessage pour utiliser l'API TTS d'OpenAI
   const handleSendMessage = async () => {
     if (inputValue.trim() === "") return
 
@@ -122,8 +211,10 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
     }
 
     setIsSending(true)
+    setIsLoading(true)
 
     try {
+      // Envoyer le message de l'utilisateur
       const newMessage = await sendMessage({
         senderId: user!.id,
         receiverId: selectedUserId,
@@ -134,22 +225,57 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
       setMessages((prev) => [...prev, newMessage])
       setInputValue("")
 
-      // Si c'est un message au bot, on attend la réponse pour l'afficher avec le personnage
+      // Si c'est un message au bot, appeler l'API Mistral
       if (selectedUserId === "bot") {
-        // La réponse sera ajoutée automatiquement par le hook useMessages
-        // On attend un peu pour simuler le temps de réponse
-        setTimeout(() => {
-          // On récupère le dernier message qui devrait être la réponse du bot
-          const botMessages = getMessages(selectedUserId).filter(
-            (msg) => msg.senderId === "bot" && msg.timestamp > newMessage.timestamp,
-          )
+        try {
+          // Appeler l'API Mistral
+          const response = await callMistralAPI(inputValue)
 
-          if (botMessages.length > 0) {
-            const latestBotMessage = botMessages[botMessages.length - 1]
-            setCurrentCharacterMessage(latestBotMessage)
-            setShowCharacterMessage(true)
+          console.log("response : " , response)
+
+          // Déterminer si la réponse est une URL ou du texte
+          const messageType = isValidURL(response) ? "video" : "text"
+
+          // Créer le message de réponse
+          const botResponse: Message = {
+            id: String(Date.now()),
+            senderId: "bot",
+            receiverId: user!.id,
+            content: response,
+            timestamp: new Date(),
+            type: messageType,
+            read: false,
+            characterId: selectedCharacter.id,
           }
-        }, 1200)
+
+          // Afficher le message avec le personnage
+          setCurrentCharacterMessage(botResponse)
+          setShowCharacterMessage(true)
+        } catch (error) {
+          console.error("Erreur lors de l'appel à l'API Mistral:", error)
+
+          // Utiliser l'URL YouTube de secours
+          const fallbackUrl = "https://www.youtube.com/watch?v=MzvAJgy2pfc&list=RDMzvAJgy2pfc&start_radio=1"
+
+          const botResponse: Message = {
+            id: String(Date.now()),
+            senderId: "bot",
+            receiverId: user!.id,
+            content: fallbackUrl,
+            timestamp: new Date(),
+            type: "video",
+            read: false,
+            characterId: selectedCharacter.id,
+          }
+
+          setCurrentCharacterMessage(botResponse)
+          setShowCharacterMessage(true)
+
+          toast({
+            title: "Utilisation de la réponse de secours",
+            description: "L'API n'a pas pu être contactée, une vidéo de démonstration est utilisée à la place.",
+          })
+        }
       }
     } catch (error) {
       toast({
@@ -159,6 +285,7 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
       })
     } finally {
       setIsSending(false)
+      setIsLoading(false)
     }
   }
 
@@ -181,33 +308,6 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
     setIsRecording(!isRecording)
   }
 
-  const speakText = (text: string) => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      // Cancel any ongoing speech
-      window.speechSynthesis.cancel()
-
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.lang = "fr-FR"
-
-      utterance.onstart = () => {
-        setIsSpeaking(true)
-      }
-
-      utterance.onend = () => {
-        setIsSpeaking(false)
-      }
-
-      window.speechSynthesis.speak(utterance)
-    }
-  }
-
-  const stopSpeaking = () => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel()
-      setIsSpeaking(false)
-    }
-  }
-
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -223,7 +323,15 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
     setInputValue(text)
   }
 
+  // Modifier la fonction handleCharacterSelect pour réinitialiser les messages
+  // Remplacer la fonction handleCharacterSelect par celle-ci:
+
   const handleCharacterSelect = (character: Character) => {
+    // Si on change de personnage, on réinitialise les messages affichés
+    if (selectedCharacter.id !== character.id) {
+      setMessages([])
+    }
+
     setSelectedCharacterState(character)
     setSelectedCharacter(character.id)
 
@@ -241,6 +349,7 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
     setShowCharacterMessage(true)
   }
 
+  // Modifier la fonction handleCharacterMessageFinish pour activer la synthèse vocale
   const handleCharacterMessageFinish = () => {
     // Ajouter le message du personnage à la liste des messages une fois l'animation terminée
     if (currentCharacterMessage && !messages.some((m) => m.id === currentCharacterMessage.id)) {
@@ -278,6 +387,18 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
               </TabsTrigger>
             </TabsList>
           </div>
+          <div className="flex justify-end px-4 py-2 border-b">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsMuted(!isMuted)}
+              className="ml-auto"
+              aria-label={isMuted ? "Activer le son" : "Désactiver le son"}
+            >
+              {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+              <span className="ml-2">{isMuted ? "Son désactivé" : "Son activé"}</span>
+            </Button>
+          </div>
 
           <div className="h-[500px] flex flex-col">
             <div className="flex-1 overflow-y-auto p-4">
@@ -288,6 +409,7 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
                   onSpeakText={speakText}
                   currentUserId={user?.id || ""}
                   selectedUserId={selectedUserId}
+                  isMuted={isMuted}
                 />
               ))}
 
@@ -297,6 +419,7 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
                   character={selectedCharacter}
                   onFinish={handleCharacterMessageFinish}
                   onSpeakEnd={() => {}}
+                  isMuted={isMuted}
                 />
               )}
 
@@ -320,9 +443,10 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyPress}
                   className="flex-1"
+                  disabled={isLoading}
                 />
-                <Button onClick={handleSendMessage} aria-label="Envoyer" disabled={isSending}>
-                  <Send className="h-4 w-4" />
+                <Button onClick={handleSendMessage} aria-label="Envoyer" disabled={isSending || isLoading}>
+                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 </Button>
               </div>
             </TabsContent>
@@ -336,9 +460,10 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyPress}
                     className="flex-1"
+                    disabled={isLoading}
                   />
-                  <Button onClick={handleSendMessage} aria-label="Envoyer" disabled={isSending}>
-                    <Send className="h-4 w-4" />
+                  <Button onClick={handleSendMessage} aria-label="Envoyer" disabled={isSending || isLoading}>
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </Button>
                 </div>
                 <div className="flex gap-2 mt-2">
@@ -346,6 +471,7 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
                     onClick={toggleRecording}
                     variant={isRecording ? "destructive" : "default"}
                     className="flex-1"
+                    disabled={isLoading}
                   >
                     {isRecording ? (
                       <>
@@ -370,6 +496,7 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
                         }
                       }
                     }}
+                    disabled={isMuted}
                   >
                     <Volume2 className="h-4 w-4 mr-2" />
                     Lire le dernier message
@@ -387,9 +514,10 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyPress}
                     className="flex-1"
+                    disabled={isLoading}
                   />
-                  <Button onClick={handleSendMessage} aria-label="Envoyer" disabled={isSending}>
-                    <Send className="h-4 w-4" />
+                  <Button onClick={handleSendMessage} aria-label="Envoyer" disabled={isSending || isLoading}>
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </Button>
                 </div>
                 <SignLanguageView onSignDetected={handleSignLanguageResult} />
@@ -405,9 +533,10 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyPress}
                     className="flex-1"
+                    disabled={isLoading}
                   />
-                  <Button onClick={handleSendMessage} aria-label="Envoyer" disabled={isSending}>
-                    <Send className="h-4 w-4" />
+                  <Button onClick={handleSendMessage} aria-label="Envoyer" disabled={isSending || isLoading}>
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </Button>
                 </div>
                 <PictogramSelector onSelect={handlePictogramSelect} />
