@@ -97,16 +97,17 @@ export default function Home() {
         </div>
 
         <div className="mt-20 text-center">
-          <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-400 mb-4">Rejoignez notre communauté</h2>
+          <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-400 mb-4">Rejoignez notre équipe</h2>
           <p className="text-lg text-gray-700 dark:text-gray-300 mb-8 max-w-2xl mx-auto">
-            HandiConnect rassemble déjà des milliers de personnes qui partagent, échangent et se soutiennent au
-            quotidien.
+            Nous sommes fiers de faire partie d'un collectif uni et engagé. 
+            À travers HandiConnect, notre groupe, composé de cinq membres passionnés, 
+            contribue activement à rassembler une communauté dynamique et solidaire.
           </p>
           <div className="flex flex-wrap gap-4 justify-center">
             <Button asChild size="lg" className="bg-purple-600 hover:bg-purple-700">
-              <Link href="/register">
+              <Link href="/team">
                 <UserPlus className="mr-2 h-5 w-5" />
-                Créer un compte
+                Plus savoir sur nous
               </Link>
             </Button>
           </div>

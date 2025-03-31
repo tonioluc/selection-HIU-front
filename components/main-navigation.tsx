@@ -57,7 +57,7 @@ export function MainNavigation() {
 
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center gap-6">
-          {isAuthenticated ? (
+          {isAuthenticated && (
             <>
               <Link
                 href="/dashboard"
@@ -95,16 +95,6 @@ export function MainNavigation() {
               >
                 Événements
               </Link>
-              <Link
-                href="/groups"
-                className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
-                  pathname === "/groups" || pathname.startsWith("/groups/")
-                    ? "text-purple-600 dark:text-purple-400"
-                    : ""
-                }`}
-              >
-                Groupes
-              </Link>
               {user?.role === "admin" && (
                 <Link
                   href="/admin"
@@ -118,46 +108,10 @@ export function MainNavigation() {
                 </Link>
               )}
             </>
-          ) : (
-            <>
-              <Link
-                href="/about"
-                className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
-                  pathname === "/about" ? "text-purple-600 dark:text-purple-400" : ""
-                }`}
-              >
-                À propos
-              </Link>
-              <Link
-                href="/features"
-                className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
-                  pathname === "/features" ? "text-purple-600 dark:text-purple-400" : ""
-                }`}
-              >
-                Fonctionnalités
-              </Link>
-              <Link
-                href="/team"
-                className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
-                  pathname === "/team" ? "text-purple-600 dark:text-purple-400" : ""
-                }`}
-              >
-                Équipe
-              </Link>
-              <Link
-                href="/contact"
-                className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
-                  pathname === "/contact" ? "text-purple-600 dark:text-purple-400" : ""
-                }`}
-              >
-                Contact
-              </Link>
-            </>
           )}
         </nav>
 
         <div className="flex items-center gap-2">
-          <AccessibilityMenu />
 
           <Button
             variant="ghost"
@@ -250,7 +204,7 @@ export function MainNavigation() {
       {isMenuOpen && (
         <div className="md:hidden p-4 bg-background border-b">
           <nav className="flex flex-col space-y-4">
-            {isAuthenticated ? (
+            {isAuthenticated && (
               <>
                 <Link
                   href="/dashboard"
@@ -292,17 +246,6 @@ export function MainNavigation() {
                 >
                   Événements
                 </Link>
-                <Link
-                  href="/groups"
-                  className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
-                    pathname === "/groups" || pathname.startsWith("/groups/")
-                      ? "text-purple-600 dark:text-purple-400"
-                      : ""
-                  }`}
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Groupes
-                </Link>
                 {user?.role === "admin" && (
                   <Link
                     href="/admin"
@@ -321,61 +264,6 @@ export function MainNavigation() {
                     <LogOut className="mr-2 h-4 w-4" />
                     Se déconnecter
                   </Button>
-                </div>
-              </>
-            ) : (
-              <>
-                <Link
-                  href="/about"
-                  className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
-                    pathname === "/about" ? "text-purple-600 dark:text-purple-400" : ""
-                  }`}
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  À propos
-                </Link>
-                <Link
-                  href="/features"
-                  className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
-                    pathname === "/features" ? "text-purple-600 dark:text-purple-400" : ""
-                  }`}
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Fonctionnalités
-                </Link>
-                <Link
-                  href="/team"
-                  className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
-                    pathname === "/team" ? "text-purple-600 dark:text-purple-400" : ""
-                  }`}
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Équipe
-                </Link>
-                <Link
-                  href="/contact"
-                  className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
-                    pathname === "/contact" ? "text-purple-600 dark:text-purple-400" : ""
-                  }`}
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Contact
-                </Link>
-                <div className="border-t my-2 pt-2">
-                  <Link
-                    href="/login"
-                    className="block w-full py-2 text-center text-sm font-medium text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
-                    onClick={() => setIsMenuOpen(false)}
-                  >
-                    Se connecter
-                  </Link>
-                  <Link
-                    href="/register"
-                    className="block w-full py-2 mt-2 text-center text-sm font-medium bg-purple-600 text-white rounded-md hover:bg-purple-700"
-                    onClick={() => setIsMenuOpen(false)}
-                  >
-                    S'inscrire
-                  </Link>
                 </div>
               </>
             )}
