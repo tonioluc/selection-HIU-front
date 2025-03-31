@@ -13,6 +13,7 @@ export type Message = {
   type: "text" | "voice" | "sign" | "pictogram"
   read: boolean
   characterId?: string // Ajout du champ pour stocker l'ID du personnage
+  positivity: boolean
 }
 
 export type Conversation = {
@@ -43,6 +44,7 @@ const messagesData: Message[] = [
     type: "text",
     read: true,
     characterId: "handi",
+    positivity: true,
   },
   {
     id: "2",
@@ -52,6 +54,7 @@ const messagesData: Message[] = [
     timestamp: new Date(2025, 2, 25, 10, 5),
     type: "text",
     read: true,
+    positivity: true,
   },
   {
     id: "3",
@@ -63,6 +66,7 @@ const messagesData: Message[] = [
     type: "text",
     read: true,
     characterId: "handi",
+    positivity: true,
   },
   {
     id: "4",
@@ -72,6 +76,7 @@ const messagesData: Message[] = [
     timestamp: new Date(2025, 2, 24, 15, 30),
     type: "text",
     read: true,
+    positivity: true,
   },
   {
     id: "5",
@@ -81,6 +86,7 @@ const messagesData: Message[] = [
     timestamp: new Date(2025, 2, 24, 15, 45),
     type: "text",
     read: true,
+    positivity: true,
   },
   {
     id: "6",
@@ -90,6 +96,7 @@ const messagesData: Message[] = [
     timestamp: new Date(2025, 2, 24, 15, 50),
     type: "text",
     read: false,
+    positivity: true,
   },
   {
     id: "7",
@@ -100,6 +107,7 @@ const messagesData: Message[] = [
     timestamp: new Date(2025, 2, 23, 9, 15),
     type: "text",
     read: true,
+    positivity: true,
   },
   {
     id: "8",
@@ -109,6 +117,7 @@ const messagesData: Message[] = [
     timestamp: new Date(2025, 2, 23, 10, 0),
     type: "text",
     read: true,
+    positivity: true,
   },
 ]
 
@@ -257,6 +266,7 @@ export const useMessages = create<MessagesState>()(
               type: "text",
               read: false,
               characterId: get().selectedCharacterId, // Utiliser le personnage sélectionné
+              positivity: true,
             }
 
             set((state) => ({

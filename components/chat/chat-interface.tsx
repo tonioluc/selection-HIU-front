@@ -13,7 +13,7 @@ import { SignLanguageView } from "./sign-language-view"
 import { PictogramSelector } from "./pictogram-selector"
 import { CharacterSelector, type Character } from "./character-selector"
 import { CharacterMessage } from "./character-message"
-import { useAuth } from "@/lib/auth"
+import { addreportedUsers, getUserById, useAuth } from "@/lib/auth"
 import { useToast } from "@/hooks/use-toast"
 import { useMessages, type Message } from "@/lib/messages"
 
@@ -50,6 +50,7 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
   const [currentCharacterMessage, setCurrentCharacterMessage] = useState<Message | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [speechRecognition, setSpeechRecognition] = useState<any>(null)
+  const [response, setResponse] = useState(null);
 
   // Load messages when selectedUserId changes
   useEffect(() => {
@@ -110,18 +111,41 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
   }, [user])
 
   const handleSendMessage = async () => {
-    if (inputValue.trim() === "") return
+    if (inputValue.trim() === "") return;
 
     if (!isAuthenticated) {
       toast({
         title: "Connexion requise",
         description: "Veuillez vous connecter pour envoyer des messages.",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
-    setIsSending(true)
+    const sentimentMessage = async (message: string) => {
+      const data = { inputs: message };
+
+      try {
+        const res = await fetch("https://hiu-interne-back.onrender.com/sentiment-controller", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(data),
+        });
+
+        if (!res.ok) {
+          throw new Error("Erreur dans la requête");
+        }
+
+        return await res.json();
+      } catch (error) {
+        console.error("Erreur :", error);
+        return null; // Retourne null en cas d'erreur
+      }
+    };
+
+    setIsSending(true);
 
     try {
       const newMessage = await sendMessage({
@@ -129,38 +153,68 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
         receiverId: selectedUserId,
         content: inputValue,
         type: activeTab as "text" | "voice" | "sign" | "pictogram",
-      })
+        positivity: true,
+      });
 
-      setMessages((prev) => [...prev, newMessage])
-      setInputValue("")
+      const sentimentResponse = await sentimentMessage(newMessage.content);
+      console.log(newMessage.content + " : " + sentimentResponse["sentiment"]);
 
-      // Si c'est un message au bot, on attend la réponse pour l'afficher avec le personnage
+      // Mise à jour de "positivity" basée sur la réponse
+      if (sentimentResponse != null && sentimentResponse["sentiment"] != "1") 
+      {
+        newMessage.positivity = false;
+
+        // Récupération des infos de l'utilisateur
+        if(user)
+        {
+          const userReport = getUserById(user.id);
+
+          if(userReport)
+          {
+            // Ajout à la liste des utilisateurs signalés
+            addreportedUsers({
+              id: userReport.id,
+              name: userReport.name,
+              email: userReport.email,
+              reason: "Message Négative",
+              reportedBy: "Handi", // Signaler Par l'IA
+              date: new Date(),
+            });
+          }
+          
+        }
+      }
+      else newMessage.positivity = true;
+
+      setMessages((prev) => [...prev, newMessage]);
+
+      setInputValue("");
+
+      // Gérer le comportement du bot si nécessaire
       if (selectedUserId === "bot") {
-        // La réponse sera ajoutée automatiquement par le hook useMessages
-        // On attend un peu pour simuler le temps de réponse
         setTimeout(() => {
-          // On récupère le dernier message qui devrait être la réponse du bot
           const botMessages = getMessages(selectedUserId).filter(
             (msg) => msg.senderId === "bot" && msg.timestamp > newMessage.timestamp,
-          )
+          );
 
           if (botMessages.length > 0) {
-            const latestBotMessage = botMessages[botMessages.length - 1]
-            setCurrentCharacterMessage(latestBotMessage)
-            setShowCharacterMessage(true)
+            const latestBotMessage = botMessages[botMessages.length - 1];
+            setCurrentCharacterMessage(latestBotMessage);
+            setShowCharacterMessage(true);
           }
-        }, 1200)
+        }, 1200);
       }
     } catch (error) {
       toast({
         title: "Erreur",
         description: "Une erreur est survenue lors de l'envoi du message.",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsSending(false)
+      setIsSending(false);
     }
-  }
+  };
+
 
   const toggleRecording = () => {
     if (!speechRecognition) {
@@ -237,6 +291,7 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
       type: "text",
       read: false,
       characterId: character.id,
+      positivity: true,
     })
     setShowCharacterMessage(true)
   }
@@ -296,7 +351,7 @@ export function ChatInterface({ selectedUserId = "bot" }: ChatInterfaceProps) {
                   message={currentCharacterMessage.content}
                   character={selectedCharacter}
                   onFinish={handleCharacterMessageFinish}
-                  onSpeakEnd={() => {}}
+                  onSpeakEnd={() => { }}
                 />
               )}
 
