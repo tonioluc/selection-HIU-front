@@ -12,7 +12,17 @@ import { useGroups, type Group, type GroupPost } from "@/lib/groups"
 import { useAuth } from "@/lib/auth"
 import { getUserById } from "@/lib/auth"
 import { useToast } from "@/hooks/use-toast"
-import { Users, MessageSquare, ArrowLeft, Check, Loader2, ThumbsUp, MessageCircle, Calendar } from "lucide-react"
+import {
+  Users,
+  MessageSquare,
+  ArrowLeft,
+  Check,
+  Loader2,
+  ThumbsUp,
+  MessageCircle,
+  Calendar,
+  Share2,
+} from "lucide-react"
 import Link from "next/link"
 
 export default function GroupDetailPage() {
@@ -27,6 +37,7 @@ export default function GroupDetailPage() {
   const [isJoining, setIsJoining] = useState(false)
   const [newPostContent, setNewPostContent] = useState("")
   const [isPostingContent, setIsPostingContent] = useState(false)
+  const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     if (params.id) {
@@ -139,6 +150,60 @@ export default function GroupDetailPage() {
       })
     } finally {
       setIsPostingContent(false)
+    }
+  }
+
+  // Handle liking a post
+  const handleLikePost = (postId: string) => {
+    if (!isAuthenticated) {
+      toast({
+        title: "Connexion requise",
+        description: "Veuillez vous connecter pour aimer ce message.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setLikedPosts((prev) => {
+      const newState = { ...prev, [postId]: !prev[postId] }
+      return newState
+    })
+
+    setPosts((prev) =>
+      prev.map((post) => {
+        if (post.id === postId) {
+          const delta = likedPosts[postId] ? -1 : 1
+          return { ...post, likes: post.likes + delta }
+        }
+        return post
+      }),
+    )
+  }
+
+  // Copy group link to clipboard
+  const copyGroupLink = () => {
+    const url = window.location.href
+    navigator.clipboard.writeText(url)
+    toast({
+      title: "Lien copié",
+      description: "Le lien du groupe a été copié dans le presse-papier.",
+    })
+  }
+
+  // Share group
+  const shareGroup = () => {
+    if (navigator.share) {
+      navigator
+        .share({
+          title: group?.name || "Groupe HandiConnect",
+          text: `Rejoignez le groupe ${group?.name} sur HandiConnect!`,
+          url: window.location.href,
+        })
+        .catch(() => {
+          copyGroupLink()
+        })
+    } else {
+      copyGroupLink()
     }
   }
 
@@ -316,7 +381,12 @@ export default function GroupDetailPage() {
                       <p>{post.content}</p>
                     </CardContent>
                     <CardFooter className="border-t pt-3 flex gap-4">
-                      <Button variant="ghost" size="sm" className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={`flex gap-1 ${likedPosts[post.id] ? "text-blue-600" : ""}`}
+                        onClick={() => handleLikePost(post.id)}
+                      >
                         <ThumbsUp className="h-4 w-4" />
                         <span>{post.likes}</span>
                       </Button>
@@ -375,10 +445,11 @@ export default function GroupDetailPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1">
+                  <Button variant="outline" className="flex-1" onClick={copyGroupLink}>
                     Copier le lien
                   </Button>
-                  <Button variant="outline" className="flex-1">
+                  <Button variant="outline" className="flex-1" onClick={shareGroup}>
+                    <Share2 className="h-4 w-4 mr-2" />
                     Inviter
                   </Button>
                 </div>

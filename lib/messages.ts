@@ -10,10 +10,10 @@ export type Message = {
   receiverId: string
   content: string
   timestamp: Date
-  type: "text" | "voice" | "sign" | "pictogram"
+  type: "text" | "voice" | "sign" | "pictogram" | "video"
   read: boolean
-  characterId?: string // Ajout du champ pour stocker l'ID du personnage
-  positivity: boolean
+  characterId?: string
+  positivity?: boolean
 }
 
 export type Conversation = {
@@ -22,17 +22,31 @@ export type Conversation = {
   unreadCount: number
 }
 
+// Mettre à jour le type Character pour inclure le modèle 3D
+export type Character = {
+  id: string
+  name: string
+  avatar: string
+  description: string
+  color?: string
+  model?: string
+  imageUrl?: string
+}
+
 type MessagesState = {
   messages: Message[]
   conversations: Conversation[]
   selectedCharacterId: string
+  currentUserId: string
+  setCurrentUserId: (userId: string) => void
   getConversations: () => Conversation[]
-  getMessages: (userId: string) => Message[]
+  getMessages: (userId: string, characterId?: string) => Message[]
   sendMessage: (message: Omit<Message, "id" | "timestamp" | "read">) => Promise<Message>
   markAsRead: (userId: string) => void
   setSelectedCharacter: (characterId: string) => void
 }
 
+// Remplacer les données statiques par des données plus dynamiques
 // Sample messages data
 const messagesData: Message[] = [
   {
@@ -44,137 +58,107 @@ const messagesData: Message[] = [
     type: "text",
     read: true,
     characterId: "handi",
-    positivity: true,
   },
+  // Ajouter quelques messages de test pour s'assurer que les conversations dynamiques fonctionnent
   {
     id: "2",
     senderId: "1",
-    receiverId: "bot",
-    content: "Bonjour Handi ! Je cherche des informations sur les événements à venir.",
-    timestamp: new Date(2025, 2, 25, 10, 5),
+    receiverId: "2",
+    content: "Bonjour Sophie, comment vas-tu ?",
+    timestamp: new Date(2025, 2, 26, 11, 0),
     type: "text",
     read: true,
-    positivity: true,
   },
   {
     id: "3",
-    senderId: "bot",
+    senderId: "2",
     receiverId: "1",
-    content:
-      "Bien sûr ! Il y a plusieurs événements à venir. Vous pouvez les consulter dans la section Événements. Souhaitez-vous des informations sur un type d'événement en particulier ?",
-    timestamp: new Date(2025, 2, 25, 10, 6),
+    content: "Bonjour ! Je vais bien, merci. Et toi ?",
+    timestamp: new Date(2025, 2, 26, 11, 5),
     type: "text",
     read: true,
-    characterId: "handi",
-    positivity: true,
   },
   {
     id: "4",
-    senderId: "2",
-    receiverId: "1",
-    content: "Bonjour Marie ! Comment vas-tu aujourd'hui ?",
-    timestamp: new Date(2025, 2, 24, 15, 30),
+    senderId: "1",
+    receiverId: "3",
+    content: "Salut Thomas, as-tu vu le nouvel événement ?",
+    timestamp: new Date(2025, 2, 27, 9, 0),
     type: "text",
     read: true,
-    positivity: true,
   },
   {
     id: "5",
-    senderId: "1",
-    receiverId: "2",
-    content: "Salut Thomas ! Ça va bien, merci. Et toi ?",
-    timestamp: new Date(2025, 2, 24, 15, 45),
-    type: "text",
-    read: true,
-    positivity: true,
-  },
-  {
-    id: "6",
-    senderId: "2",
-    receiverId: "1",
-    content: "Très bien ! Je voulais te demander si tu participais à l'atelier d'art la semaine prochaine ?",
-    timestamp: new Date(2025, 2, 24, 15, 50),
-    type: "text",
-    read: false,
-    positivity: true,
-  },
-  {
-    id: "7",
     senderId: "3",
     receiverId: "1",
-    content:
-      "Bonjour Marie ! J'ai vu que tu t'intéressais à la photographie. J'organise une sortie photo adaptée ce weekend, ça t'intéresse ?",
-    timestamp: new Date(2025, 2, 23, 9, 15),
+    content: "Oui, j'ai prévu d'y aller ! Tu viens aussi ?",
+    timestamp: new Date(2025, 2, 27, 9, 15),
     type: "text",
-    read: true,
-    positivity: true,
-  },
-  {
-    id: "8",
-    senderId: "1",
-    receiverId: "3",
-    content: "Bonjour Sophie ! Oui, ça m'intéresse beaucoup ! Peux-tu me donner plus de détails ?",
-    timestamp: new Date(2025, 2, 23, 10, 0),
-    type: "text",
-    read: true,
-    positivity: true,
+    read: false,
   },
 ]
 
-// Fonction utilitaire pour s'assurer qu'un timestamp est un objet Date
+// Helper function to ensure timestamp is a Date object
 const ensureDateTimestamp = (message: Message): Message => {
-  if (!(message.timestamp instanceof Date)) {
-    return {
-      ...message,
-      timestamp: new Date(message.timestamp),
-    }
-  }
-  return message
+  const timestamp = message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp)
+  return { ...message, timestamp }
 }
 
-// Generate conversations from messages
+// Ajouter une fonction pour générer des conversations dynamiques
 const generateConversations = (messages: Message[], currentUserId = "1"): Conversation[] => {
+  console.log("Generating conversations for user:", currentUserId, "with", messages.length, "messages")
+
   const conversationMap = new Map<string, { lastMessage: Message; unreadCount: number }>()
 
-  // Add bot conversation first
-  conversationMap.set("bot", {
-    lastMessage: messages
-      .filter(
-        (m) =>
-          (m.senderId === "bot" && m.receiverId === currentUserId) ||
-          (m.senderId === currentUserId && m.receiverId === "bot"),
-      )
-      .map((message) => {
-        // S'assurer que timestamp est un objet Date
-        const timestamp = message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp)
-        return { ...message, timestamp }
-      })
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())[0] || {
-      id: "0",
-      senderId: "bot",
-      receiverId: currentUserId,
-      content: "Bonjour ! Je suis Handi, votre assistant virtuel. Comment puis-je vous aider aujourd'hui ?",
-      timestamp: new Date(),
-      type: "text",
-      read: true,
-      characterId: "handi",
-    },
-    unreadCount: messages.filter((m) => m.senderId === "bot" && m.receiverId === currentUserId && !m.read).length,
-  })
+  // Add bot conversation first if there are messages with the bot
+  const botMessages = messages.filter(
+    (m) =>
+      (m.senderId === "bot" && m.receiverId === currentUserId) ||
+      (m.senderId === currentUserId && m.receiverId === "bot"),
+  )
+
+  if (botMessages.length > 0) {
+    const sortedBotMessages = botMessages
+      .map(ensureDateTimestamp)
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+
+    conversationMap.set("bot", {
+      lastMessage: sortedBotMessages[0],
+      unreadCount: botMessages.filter((m) => m.senderId === "bot" && m.receiverId === currentUserId && !m.read).length,
+    })
+  } else {
+    // Add default bot message if no messages exist
+    conversationMap.set("bot", {
+      lastMessage: {
+        id: "0",
+        senderId: "bot",
+        receiverId: currentUserId,
+        content: "Bonjour ! Je suis Handi, votre assistant virtuel. Comment puis-je vous aider aujourd'hui ?",
+        timestamp: new Date(),
+        type: "text",
+        read: true,
+        characterId: "handi",
+      },
+      unreadCount: 0,
+    })
+  }
 
   // Process all messages to find conversations
   messages.forEach((message) => {
+    // Ensure message has a Date object for timestamp
+    const processedMessage = ensureDateTimestamp(message)
+
     if (message.senderId === currentUserId) {
       // Messages sent by current user
       const otherUserId = message.receiverId
       if (otherUserId === "bot") return // Skip bot messages as we've already added them
 
       if (!conversationMap.has(otherUserId)) {
-        conversationMap.set(otherUserId, { lastMessage: message, unreadCount: 0 })
+        conversationMap.set(otherUserId, { lastMessage: processedMessage, unreadCount: 0 })
       } else {
         const conversation = conversationMap.get(otherUserId)!
-        if (ensureDateTimestamp(message).timestamp > ensureDateTimestamp(conversation.lastMessage).timestamp) {
-          conversation.lastMessage = message
+        if (processedMessage.timestamp > ensureDateTimestamp(conversation.lastMessage).timestamp) {
+          conversation.lastMessage = processedMessage
         }
       }
     } else if (message.receiverId === currentUserId) {
@@ -184,13 +168,13 @@ const generateConversations = (messages: Message[], currentUserId = "1"): Conver
 
       if (!conversationMap.has(otherUserId)) {
         conversationMap.set(otherUserId, {
-          lastMessage: message,
+          lastMessage: processedMessage,
           unreadCount: message.read ? 0 : 1,
         })
       } else {
         const conversation = conversationMap.get(otherUserId)!
-        if (ensureDateTimestamp(message).timestamp > ensureDateTimestamp(conversation.lastMessage).timestamp) {
-          conversation.lastMessage = message
+        if (processedMessage.timestamp > ensureDateTimestamp(conversation.lastMessage).timestamp) {
+          conversation.lastMessage = processedMessage
         }
         if (!message.read) {
           conversation.unreadCount += 1
@@ -200,11 +184,25 @@ const generateConversations = (messages: Message[], currentUserId = "1"): Conver
   })
 
   // Convert map to array of conversations
-  return Array.from(conversationMap.entries()).map(([userId, data]) => ({
-    userId,
-    lastMessage: data.lastMessage,
-    unreadCount: data.unreadCount,
-  }))
+  const conversations = Array.from(conversationMap.entries())
+    .map(([userId, data]) => ({
+      userId,
+      lastMessage: data.lastMessage,
+      unreadCount: data.unreadCount,
+    }))
+    // Sort conversations by timestamp (most recent first)
+    .sort((a, b) => {
+      const timestampA = ensureDateTimestamp(a.lastMessage).timestamp.getTime()
+      const timestampB = ensureDateTimestamp(b.lastMessage).timestamp.getTime()
+      return timestampB - timestampA
+    })
+
+  console.log(
+    "Generated conversations:",
+    conversations.length,
+    conversations.map((c) => c.userId),
+  )
+  return conversations
 }
 
 export const useMessages = create<MessagesState>()(
@@ -213,19 +211,29 @@ export const useMessages = create<MessagesState>()(
       messages: messagesData,
       conversations: [],
       selectedCharacterId: "handi", // Personnage par défaut
+      currentUserId: "1", // Valeur par défaut
+      setCurrentUserId: (userId: string) => {
+        set({ currentUserId: userId })
+      },
       getConversations: () => {
-        // This would normally use the current user's ID from auth
-        const conversations = generateConversations(get().messages)
+        // Utiliser l'ID de l'utilisateur stocké dans l'état
+        const currentUserId = get().currentUserId
+        console.log("Getting conversations for user:", currentUserId)
+
+        const conversations = generateConversations(get().messages, currentUserId)
+        console.log("Setting conversations:", conversations.length)
         set({ conversations })
         return conversations
       },
-      getMessages: (userId) => {
+      getMessages: (userId: string, characterId?: string) => {
         const { messages } = get()
-        return messages
+        const currentUserId = get().currentUserId
+
+        let filteredMessages = messages
           .filter(
             (message) =>
-              (message.senderId === userId && message.receiverId === "1") ||
-              (message.senderId === "1" && message.receiverId === userId),
+              (message.senderId === userId && message.receiverId === currentUserId) ||
+              (message.senderId === currentUserId && message.receiverId === userId),
           )
           .map((message) => {
             // S'assurer que timestamp est un objet Date
@@ -237,10 +245,25 @@ export const useMessages = create<MessagesState>()(
             }
           })
           .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+
+        // Si un characterId est spécifié et que l'userId est "bot", filtrer par characterId
+        if (characterId && userId === "bot") {
+          filteredMessages = filteredMessages.filter(
+            (message) =>
+              // Inclure les messages de l'utilisateur vers le bot
+              message.senderId === currentUserId ||
+              // Pour les messages du bot, vérifier le characterId
+              (message.senderId === "bot" && (!message.characterId || message.characterId === characterId)),
+          )
+        }
+
+        return filteredMessages
       },
       sendMessage: async (messageData) => {
         // Simulate API call
         await new Promise((resolve) => setTimeout(resolve, 500))
+
+        console.log("Sending message with data:", messageData)
 
         const newMessage: Message = {
           ...messageData,
@@ -249,9 +272,16 @@ export const useMessages = create<MessagesState>()(
           read: false,
         }
 
-        set((state) => ({
-          messages: [...state.messages, newMessage],
-        }))
+        set((state) => {
+          const newMessages = [...state.messages, newMessage]
+          console.log("Updated messages count:", newMessages.length)
+          return { messages: newMessages }
+        })
+
+        // Mettre à jour les conversations immédiatement
+        setTimeout(() => {
+          get().getConversations()
+        }, 100)
 
         // If message is sent to bot, generate a response
         if (messageData.receiverId === "bot") {
@@ -266,21 +296,28 @@ export const useMessages = create<MessagesState>()(
               type: "text",
               read: false,
               characterId: get().selectedCharacterId, // Utiliser le personnage sélectionné
-              positivity: true,
             }
 
-            set((state) => ({
-              messages: [...state.messages, responseMessage],
-            }))
+            set((state) => {
+              const newMessages = [...state.messages, responseMessage]
+              console.log("Updated messages with bot response, count:", newMessages.length)
+              return { messages: newMessages }
+            })
+
+            // Mettre à jour les conversations après la réponse du bot
+            setTimeout(() => {
+              get().getConversations()
+            }, 100)
           }, 1000)
         }
 
         return newMessage
       },
       markAsRead: (userId) => {
+        const currentUserId = get().currentUserId
         set((state) => ({
           messages: state.messages.map((message) =>
-            message.senderId === userId && message.receiverId === "1" && !message.read
+            message.senderId === userId && message.receiverId === currentUserId && !message.read
               ? { ...message, read: true }
               : message,
           ),

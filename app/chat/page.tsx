@@ -1,13 +1,15 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { MainNavigation } from "@/components/main-navigation"
 import { ChatInterface } from "@/components/chat/chat-interface"
 import { useMessages, getUserNameForConversation, getUserAvatarForConversation } from "@/lib/messages"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Search, MessageSquare } from "lucide-react"
+import { Search, MessageSquare, PenSquare } from "lucide-react"
+import Link from "next/link"
 
 export default function ChatPage() {
   const { getConversations, markAsRead } = useMessages()
@@ -15,15 +17,34 @@ export default function ChatPage() {
   const [selectedUserId, setSelectedUserId] = useState<string>("bot")
   const [searchTerm, setSearchTerm] = useState("")
 
+  // Récupérer le paramètre userId de l'URL
+  const searchParams = useSearchParams()
+  const userIdParam = searchParams.get("userId")
+
   useEffect(() => {
+    // Récupérer les conversations à chaque fois que la page est chargée
     const convos = getConversations()
     setConversations(convos)
+
+    // Si un userId est spécifié dans l'URL, l'utiliser
+    if (userIdParam) {
+      setSelectedUserId(userIdParam)
+      console.log("URL parameter userId:", userIdParam)
+    }
 
     // Mark messages as read when conversation is selected
     if (selectedUserId) {
       markAsRead(selectedUserId)
     }
-  }, [getConversations, selectedUserId, markAsRead])
+  }, [getConversations, markAsRead, userIdParam, selectedUserId])
+
+  // Effet pour surveiller les changements de selectedUserId
+  useEffect(() => {
+    if (selectedUserId) {
+      console.log("Selected user ID changed to:", selectedUserId)
+      markAsRead(selectedUserId)
+    }
+  }, [selectedUserId, markAsRead])
 
   const filteredConversations = conversations.filter((convo) =>
     getUserNameForConversation(convo.userId).toLowerCase().includes(searchTerm.toLowerCase()),
@@ -34,7 +55,15 @@ export default function ChatPage() {
       <MainNavigation />
 
       <div className="container mx-auto px-4 py-6">
-        <h1 className="text-3xl font-bold text-purple-700 dark:text-purple-400 mb-6">Chat Multimodal</h1>
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl font-bold text-purple-700 dark:text-purple-400">Chat Multimodal</h1>
+          <Button asChild>
+            <Link href="/new-message" className="flex items-center gap-2">
+              <PenSquare className="h-4 w-4" />
+              Nouveau message
+            </Link>
+          </Button>
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           <div className="lg:col-span-1 bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
@@ -90,6 +119,9 @@ export default function ChatPage() {
                 <div className="flex flex-col items-center justify-center h-full p-4">
                   <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
                   <p className="text-center text-muted-foreground">Aucune conversation trouvée</p>
+                  <Button variant="outline" className="mt-4" asChild>
+                    <Link href="/new-message">Démarrer une conversation</Link>
+                  </Button>
                 </div>
               )}
             </div>

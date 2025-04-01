@@ -9,13 +9,13 @@ import { Badge } from "@/components/ui/badge"
 import { useEvents, type Event } from "@/lib/events"
 import { useAuth } from "@/lib/auth"
 import { useToast } from "@/hooks/use-toast"
-import { CalendarDays, Clock, MapPin, Users, ArrowLeft, Check, Loader2 } from "lucide-react"
+import { CalendarDays, Clock, MapPin, Users, ArrowLeft, Check, Loader2, Share2, Copy } from "lucide-react"
 import Link from "next/link"
 
 export default function EventDetailPage() {
   const params = useParams()
   const router = useRouter()
-  const { events } = useEvents()
+  const { events, getEventById } = useEvents()
   const { user, isAuthenticated, registerForEvent } = useAuth()
   const { toast } = useToast()
   const [event, setEvent] = useState<Event | null>(null)
@@ -25,7 +25,7 @@ export default function EventDetailPage() {
   useEffect(() => {
     if (params.id) {
       const eventId = Array.isArray(params.id) ? params.id[0] : params.id
-      const foundEvent = events.find((e) => e.id === eventId)
+      const foundEvent = getEventById(eventId)
 
       if (foundEvent) {
         setEvent(foundEvent)
@@ -40,7 +40,19 @@ export default function EventDetailPage() {
 
       setIsLoading(false)
     }
-  }, [params.id, events, router, toast])
+  }, [params.id, getEventById, router, toast])
+
+  // Mettre à jour l'événement lorsque les données changent
+  useEffect(() => {
+    if (params.id && !isLoading) {
+      const eventId = Array.isArray(params.id) ? params.id[0] : params.id
+      const foundEvent = getEventById(eventId)
+
+      if (foundEvent) {
+        setEvent(foundEvent)
+      }
+    }
+  }, [params.id, events, getEventById, isLoading])
 
   // Check if user is registered for this event
   const isUserRegistered = () => {
@@ -81,6 +93,33 @@ export default function EventDetailPage() {
       })
     } finally {
       setIsRegistering(false)
+    }
+  }
+
+  // Copy event link to clipboard
+  const copyEventLink = () => {
+    const url = window.location.href
+    navigator.clipboard.writeText(url)
+    toast({
+      title: "Lien copié",
+      description: "Le lien de l'événement a été copié dans le presse-papier.",
+    })
+  }
+
+  // Share event
+  const shareEvent = () => {
+    if (navigator.share) {
+      navigator
+        .share({
+          title: event?.title || "Événement HandiConnect",
+          text: `Participez à l'événement ${event?.title} sur HandiConnect!`,
+          url: window.location.href,
+        })
+        .catch(() => {
+          copyEventLink()
+        })
+    } else {
+      copyEventLink()
     }
   }
 
@@ -247,10 +286,12 @@ export default function EventDetailPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1">
+                  <Button variant="outline" className="flex-1" onClick={copyEventLink}>
+                    <Copy className="h-4 w-4 mr-2" />
                     Copier le lien
                   </Button>
-                  <Button variant="outline" className="flex-1">
+                  <Button variant="outline" className="flex-1" onClick={shareEvent}>
+                    <Share2 className="h-4 w-4 mr-2" />
                     Partager
                   </Button>
                 </div>

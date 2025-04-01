@@ -86,6 +86,16 @@ export function MainNavigation() {
                 Profils
               </Link>
               <Link
+                href="/groups"
+                className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
+                  pathname === "/events" || pathname.startsWith("/events/")
+                    ? "text-purple-600 dark:text-purple-400"
+                    : ""
+                }`}
+              >
+                Groupes
+              </Link>
+              <Link
                 href="/events"
                 className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
                   pathname === "/events" || pathname.startsWith("/events/")
@@ -234,6 +244,17 @@ export function MainNavigation() {
                   onClick={() => setIsMenuOpen(false)}
                 >
                   Profils
+                </Link>
+                <Link
+                  href="/groups"
+                  className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
+                    pathname === "/profiles" || pathname.startsWith("/profiles/")
+                      ? "text-purple-600 dark:text-purple-400"
+                      : ""
+                  }`}
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  Groupes
                 </Link>
                 <Link
                   href="/events"
