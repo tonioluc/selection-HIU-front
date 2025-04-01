@@ -75,7 +75,7 @@ export function ProfileList() {
       return
     }
 
-    router.push(`/chat?user=${userId}`)
+    router.push(`/new-message`)
   }
 
   const filteredProfiles = profiles.filter((profile) => {

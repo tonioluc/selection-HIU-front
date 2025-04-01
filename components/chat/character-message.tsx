@@ -7,9 +7,7 @@ import { VolumeX, Volume2 } from "lucide-react"
 import Image from "next/image"
 import type { Character } from "./character-selector"
 import { isValidURL, convertYouTubeUrl } from "@/lib/api-service"
-import { generateSpeech, playAudio, stopAudio, selectVoiceForCharacter } from "@/lib/openai-tts"
 
-// Mettre à jour la définition du composant pour inclure isMuted
 type CharacterMessageProps = {
   message: string
   character: Character
@@ -27,8 +25,11 @@ export function CharacterMessage({ message, character, onFinish, onSpeakEnd, isM
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isMutedState, setIsMuted] = useState(isMuted)
   const [isVideoMessage, setIsVideoMessage] = useState(false)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const speechSynthRef = useRef<SpeechSynthesisUtterance | null>(null)
+  const voicesLoadedRef = useRef<boolean>(false)
+  const availableVoicesRef = useRef<SpeechSynthesisVoice[]>([])
+  const sentenceBufferRef = useRef<string>("")
+  const lastSpeakTimeRef = useRef<number>(0)
 
   // Vérifier si le message est une URL vidéo
   useEffect(() => {
@@ -42,112 +43,285 @@ export function CharacterMessage({ message, character, onFinish, onSpeakEnd, isM
     }
   }, [message, onFinish])
 
-  // Effet pour l'animation de texte (seulement pour les messages texte)
+  // Charger les voix disponibles dès le début
   useEffect(() => {
-    if (!isVideoMessage && currentIndex < message.length) {
-      const timer = setTimeout(() => {
-        setDisplayedMessage((prev) => prev + message[currentIndex])
-        setCurrentIndex((prev) => prev + 1)
-      }, 30) // Vitesse de l'animation
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      // Fonction pour stocker les voix disponibles
+      const loadVoices = () => {
+        const voices = window.speechSynthesis.getVoices()
+        if (voices.length > 0) {
+          availableVoicesRef.current = voices
+          voicesLoadedRef.current = true
+          console.log("Voix chargées:", voices.map(v => `${v.name} (${v.lang})`).join(", "))
+        }
+      }
 
-      return () => clearTimeout(timer)
-    } else if (!isVideoMessage) {
-      setIsComplete(true)
-      if (onFinish) onFinish()
+      // Charger les voix immédiatement si disponibles
+      loadVoices()
+
+      // Ou attendre l'événement onvoiceschanged
+      window.speechSynthesis.onvoiceschanged = loadVoices
+
+      // Nettoyage
+      return () => {
+        window.speechSynthesis.onvoiceschanged = null
+      }
     }
-  }, [currentIndex, message, onFinish, isVideoMessage])
+  }, [])
 
-  // Fonction pour générer et lire la parole avec OpenAI TTS
-  const speakMessage = async () => {
-    if (!isMutedState && !isVideoMessage) {
-      try {
-        setIsSpeaking(true)
-        console.log("Génération de la parole pour:", message.substring(0, 50) + "...")
+  // Fonction pour arrêter la synthèse vocale
+  const stopSpeaking = () => {
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel()
+      setIsSpeaking(false)
+      if (onSpeakEnd) onSpeakEnd()
+    }
+    sentenceBufferRef.current = ""
+  }
 
-        // Sélectionner la voix en fonction du personnage
-        const voice = selectVoiceForCharacter(character.id)
-        console.log("Voix sélectionnée:", voice)
+  // Nettoyage lorsque le composant est démonté
+  useEffect(() => {
+    return () => {
+      stopSpeaking()
+    }
+  }, [])
 
-        // Générer l'audio avec OpenAI TTS via notre API
-        const url = await generateSpeech(message, voice)
+  // Sélectionner la voix appropriée pour le personnage
+  const selectVoiceForCharacter = (characterId: string): SpeechSynthesisVoice | null => {
+    const voices = availableVoicesRef.current
+    if (voices.length === 0) {
+      console.warn("Aucune voix disponible")
+      return null
+    }
+    
+    // Préférence de voix pour chaque personnage
+    switch (characterId) {
+      case "assistant":
+        // Voix neutre en français
+        return (
+          voices.find((v) => v.lang.includes("fr") && v.name.includes("Google")) ||
+          voices.find((v) => v.lang.includes("fr")) ||
+          voices[0]
+        )
+      case "leo":
+        // Voix masculine en français
+        return (
+          voices.find((v) => v.lang.includes("fr") && v.name.includes("Thomas")) ||
+          voices.find((v) => v.lang.includes("fr") && !v.name.includes("female") && !v.name.includes("Amélie")) ||
+          voices.find((v) => v.lang.includes("fr")) ||
+          voices[0]
+        )
+      case "emma":
+        // Voix féminine en français
+        return (
+          voices.find((v) => v.lang.includes("fr") && v.name.includes("Amélie")) ||
+          voices.find((v) => v.lang.includes("fr") && (v.name.includes("female") || v.name.includes("Elsa"))) ||
+          voices.find((v) => v.lang.includes("fr")) ||
+          voices[0]
+        )
+      case "max":
+        // Voix masculine différente en français
+        return (
+          voices.find((v) => v.lang.includes("fr") && v.name.includes("Nicolas")) ||
+          voices.find((v) => v.lang.includes("fr") && !v.name.includes("female") && !v.name.includes("Thomas")) ||
+          voices.find((v) => v.lang.includes("fr")) ||
+          voices[0]
+        )
+      default:
+        return voices[0]
+    }
+  }
 
-        if (!url) {
-          console.error("Échec de la génération audio - URL null")
-          setIsSpeaking(false)
-          return
-        }
+  // Fonction pour parler une partie du texte
+  const speakTextChunk = (text: string) => {
+    if (typeof window === "undefined" || !window.speechSynthesis || isMutedState) return
+    
+    // S'assurer que les voix sont chargées
+    if (!voicesLoadedRef.current) {
+      availableVoicesRef.current = window.speechSynthesis.getVoices()
+      if (availableVoicesRef.current.length > 0) {
+        voicesLoadedRef.current = true
+      } else {
+        console.warn("Les voix ne sont pas encore chargées!")
+        return
+      }
+    }
 
-        if (url !== "fallback") {
-          console.log("URL audio générée avec succès")
-          setAudioUrl(url)
-        }
-
-        // Jouer l'audio (avec le texte pour la solution de secours)
-        console.log("Tentative de lecture audio...")
-        audioRef.current = playAudio(url, message, () => {
-          console.log("Callback de fin de lecture appelé")
-          setIsSpeaking(false)
-          if (onSpeakEnd) onSpeakEnd()
-        })
-
-        if (!audioRef.current) {
-          console.error("Échec de la création de l'élément audio")
-          setIsSpeaking(false)
-        }
-      } catch (error) {
-        console.error("Erreur lors de la synthèse vocale:", error)
+    // Ne pas parler si le texte est vide ou simplement des espaces
+    if (!text.trim()) return
+    
+    // Créer un nouvel objet d'énoncé pour le morceau de texte
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = "fr-FR"
+    utterance.rate = 5.5
+    utterance.pitch = 3
+    
+    // Attribuer la voix appropriée
+    const voice = selectVoiceForCharacter(character.id)
+    if (voice) {
+      utterance.voice = voice
+    }
+    
+    // Configurer les événements
+    utterance.onstart = () => {
+      setIsSpeaking(true)
+    }
+    
+    utterance.onend = () => {
+      // Ne réinitialiser isSpeaking que s'il n'y a plus rien dans la file
+      if (window.speechSynthesis.pending === false) {
         setIsSpeaking(false)
       }
-    } else {
-      console.log("Synthèse vocale ignorée - muet ou message vidéo")
     }
+    
+    // Prononcer le texte
+    window.speechSynthesis.speak(utterance)
   }
 
-  // Fonction pour lire le message à haute voix
+  // Effet pour l'animation de texte avec synthèse vocale en temps réel
   useEffect(() => {
-    if (isComplete && !isSpeaking && !isMutedState && !isVideoMessage) {
-      speakMessage()
-    }
-  }, [isComplete, isMutedState, isVideoMessage])
+    if (!isVideoMessage && currentIndex < message.length) {
+      // Déterminer le délai en fonction du caractère
+      let delay = 200; // Délai de base plus lent pour synchroniser avec la parole
+      
+      // Pause plus longue après la ponctuation
+      if (['.', '!', '?', ':'].includes(message[currentIndex-1])) {
+        delay = 400;
+        // Si on a accumulé du texte, on le prononce
+        if (sentenceBufferRef.current.trim() && !isMutedState) {
+          speakTextChunk(sentenceBufferRef.current);
+          sentenceBufferRef.current = "";
+        }
+      } else if ([',', ';'].includes(message[currentIndex-1])) {
+        delay = 200;
+      }
+      
+      const timer = setTimeout(() => {
+        // Ajouter le caractère au buffer
+        sentenceBufferRef.current += message[currentIndex];
+        
+        // Mettre à jour le texte affiché
+        setDisplayedMessage((prev) => prev + message[currentIndex])
+        
+        // Parler par morceaux de 5-10 caractères pour un effet plus naturel
+        if ((sentenceBufferRef.current.length >= 6 && 
+            !message[currentIndex+1]?.match(/[a-zA-Z0-9]/)) || 
+            ['.', '!', '?', ':', ',', ';'].includes(message[currentIndex])) {
+          
+          const now = Date.now();
+          // Éviter de parler trop souvent (au moins 300ms entre les énoncés)
+          if (now - lastSpeakTimeRef.current > 300 && !isMutedState) {
+            speakTextChunk(sentenceBufferRef.current);
+            sentenceBufferRef.current = "";
+            lastSpeakTimeRef.current = now;
+          }
+        }
+        
+        // Passer au caractère suivant
+        setCurrentIndex((prev) => prev + 1)
+      }, delay)
 
-  // Fonction pour arrêter la parole
-  const stopSpeaking = () => {
-    stopAudio(audioRef.current)
-    setIsSpeaking(false)
-    if (onSpeakEnd) onSpeakEnd()
+      return () => clearTimeout(timer)
+    } else if (!isVideoMessage && currentIndex === message.length) {
+      // Si on a encore du texte dans le buffer à la fin, on le prononce
+      if (sentenceBufferRef.current.trim() && !isMutedState) {
+        speakTextChunk(sentenceBufferRef.current);
+        sentenceBufferRef.current = "";
+      }
+      
+      setIsComplete(true)
+      if (onFinish) onFinish()
+      
+      // Permettre au dernier morceau de texte d'être prononcé
+      setTimeout(() => {
+        if (!isSpeaking && onSpeakEnd) onSpeakEnd();
+      }, 500);
+    }
+  }, [currentIndex, message, isVideoMessage, isMutedState, character.id, isSpeaking, onSpeakEnd, onFinish]);
+
+  // Fonction pour lire le message complet à haute voix
+  const speakFullMessage = () => {
+    if (typeof window === "undefined" || !window.speechSynthesis || isMutedState) return
+    
+    // Arrêter toute synthèse vocale en cours
+    window.speechSynthesis.cancel()
+    
+    // S'assurer que les voix sont chargées
+    if (!voicesLoadedRef.current) {
+      availableVoicesRef.current = window.speechSynthesis.getVoices()
+      if (availableVoicesRef.current.length > 0) {
+        voicesLoadedRef.current = true
+      } else {
+        console.warn("Les voix ne sont pas encore chargées!")
+        setTimeout(speakFullMessage, 500)
+        return
+      }
+    }
+    
+    // Créer un nouvel objet d'énoncé pour le texte complet
+    const utterance = new SpeechSynthesisUtterance(message)
+    utterance.lang = "fr-FR"
+    utterance.rate = 1.0
+    
+    // Attribuer la voix appropriée
+    const voice = selectVoiceForCharacter(character.id)
+    if (voice) {
+      utterance.voice = voice
+    }
+    
+    // Configurer les événements
+    utterance.onstart = () => {
+      setIsSpeaking(true)
+    }
+    
+    utterance.onend = () => {
+      setIsSpeaking(false)
+      if (onSpeakEnd) onSpeakEnd()
+    }
+    
+    // Référence pour pouvoir l'arrêter plus tard si nécessaire
+    speechSynthRef.current = utterance
+    
+    // Prononcer le texte
+    window.speechSynthesis.speak(utterance)
   }
+
+  // Mettre à jour isMutedState quand la prop isMuted change
+  useEffect(() => {
+    setIsMuted(isMuted)
+    if (isMuted) {
+      stopSpeaking()
+    }
+  }, [isMuted])
 
   // Compléter immédiatement le message si l'utilisateur clique dessus
   const handleClick = () => {
     if (!isVideoMessage) {
       if (!isComplete) {
+        // Arrêter toute synthèse vocale en cours
+        stopSpeaking()
+        
+        // Afficher le message complet
         setDisplayedMessage(message)
         setCurrentIndex(message.length)
         setIsComplete(true)
+        
+        // Notifier que le message est complet
         if (onFinish) onFinish()
+        
+        // Lire le message complet après un court délai
+        if (!isMutedState) {
+          setTimeout(speakFullMessage, 100)
+        }
       } else if (!isSpeaking) {
         // Si le message est déjà complet et qu'on n'est pas en train de parler, on lit le message
-        speakMessage()
+        speakFullMessage()
       } else {
         // Si on est déjà en train de parler, on arrête
         stopSpeaking()
       }
     }
   }
-
-  // Nettoyer les ressources audio lors du démontage du composant
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        stopAudio(audioRef.current)
-      }
-
-      // Libérer les URL d'objets
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl)
-      }
-    }
-  }, [audioUrl])
 
   // Déterminer la couleur de fond en fonction du personnage
   const getBgGradient = () => {
@@ -234,11 +408,12 @@ export function CharacterMessage({ message, character, onFinish, onSpeakEnd, isM
           className="absolute bottom-2 right-2 h-8 w-8 rounded-full bg-white dark:bg-gray-800 shadow-md"
           onClick={(e) => {
             e.stopPropagation()
-            setIsMuted(!isMutedState)
-            if (isSpeaking && !isMutedState) {
+            const newMutedState = !isMutedState;
+            setIsMuted(newMutedState)
+            if (!newMutedState && isComplete) {
+              speakFullMessage()
+            } else if (newMutedState) {
               stopSpeaking()
-            } else if (isSpeaking && isMutedState) {
-              speakMessage()
             }
           }}
         >
@@ -261,33 +436,33 @@ export function CharacterMessage({ message, character, onFinish, onSpeakEnd, isM
             <CardContent className="p-6">
               {isVideoMessage ? (
                 <>
-                <div className="relative w-full aspect-video rounded overflow-hidden">
-                  {message.includes("youtube.com") || message.includes("youtu.be") ? (
-                    <>
-                    <iframe
-                      src={message}
-                      className="w-full h-full"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                      title="YouTube video player"
-                    />
-                    </>
-                  ) : (
-                    <video
-                      ref={videoRef}
-                      src={message}
-                      controls
-                      autoPlay
-                      className="w-full h-full object-cover"
-                      onPlay={() => setIsSpeaking(true)}
-                      onPause={() => setIsSpeaking(false)}
-                      onEnded={() => {
-                        setIsSpeaking(false)
-                        if (onSpeakEnd) onSpeakEnd()
-                      }}
-                    />
-                  )}
-                </div>
+                  <div className="relative w-full aspect-video rounded overflow-hidden">
+                    {message.includes("youtube.com") || message.includes("youtu.be") ? (
+                      <>
+                        <iframe
+                          src={convertYouTubeUrl ? convertYouTubeUrl(message) : message}
+                          className="w-full h-full"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                          title="YouTube video player"
+                        />
+                      </>
+                    ) : (
+                      <video
+                        ref={videoRef}
+                        src={message}
+                        controls
+                        autoPlay
+                        className="w-full h-full object-cover"
+                        onPlay={() => setIsSpeaking(true)}
+                        onPause={() => setIsSpeaking(false)}
+                        onEnded={() => {
+                          setIsSpeaking(false)
+                          if (onSpeakEnd) onSpeakEnd()
+                        }}
+                      />
+                    )}
+                  </div>
                 </>
               ) : (
                 <>
@@ -353,4 +528,3 @@ export function CharacterMessage({ message, character, onFinish, onSpeakEnd, isM
     </div>
   )
 }
-

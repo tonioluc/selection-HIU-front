@@ -145,6 +145,6 @@ export const useEvents = create<EventsState>((set, get) => ({
     }))
 
     return true
-  },
+  }
 }))
 

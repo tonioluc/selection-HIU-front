@@ -8,7 +8,7 @@ export default function TeamPage() {
     {
       name: "RAZAFIMBAHINY Anjara Nasolo Ericka",
       role: "Cheffe de Projet",
-      bio: "Pionnière en accessibilité numérique, Ericka met à profit plus de 10 ans d'expertise pour diriger HandiConnect. Sa vision innovante et sa passion pour l'inclusion inspirent chaque aspect du projet, garantissant une plateforme où chacun peut se sentir chez soi.",
+      bio: "Pionnière en accessibilité numérique, Ericka met à profit ses années d'expérience pour diriger HandiConnect. Sa vision innovante et sa passion pour l'inclusion inspirent chaque aspect du projet, garantissant une plateforme où chacun peut se sentir chez soi.",
       image: "/Ericka.jpg?height=300&width=300",
       skills: ["Gestion de projet", "Full-stack", "DevOps"],
       email: "anjaranasoloericka@gmail.com",
