@@ -96,6 +96,16 @@ export function MainNavigation() {
                 Groupes
               </Link>
               <Link
+                href="/community"
+                className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
+                  pathname === "/events" || pathname.startsWith("/events/")
+                    ? "text-purple-600 dark:text-purple-400"
+                    : ""
+                }`}
+              >
+                Ma communauté virtuelle
+              </Link>
+              <Link
                 href="/events"
                 className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
                   pathname === "/events" || pathname.startsWith("/events/")
@@ -255,6 +265,17 @@ export function MainNavigation() {
                   onClick={() => setIsMenuOpen(false)}
                 >
                   Groupes
+                </Link>
+                <Link
+                  href="/community"
+                  className={`text-sm font-medium transition-colors hover:text-purple-600 dark:hover:text-purple-400 ${
+                    pathname === "/profiles" || pathname.startsWith("/profiles/")
+                      ? "text-purple-600 dark:text-purple-400"
+                      : ""
+                  }`}
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  Ma communauté virtuelle
                 </Link>
                 <Link
                   href="/events"
