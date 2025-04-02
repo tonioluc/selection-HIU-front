@@ -30,7 +30,7 @@ export default function CommunityPage() {
             </div>
           )}
           <iframe
-            src="https://kzmqzpxazjq5dhngjxag.lite.vusercontent.net/"
+            src="https://kzmklpg5gwlidqk9t9x5.lite.vusercontent.net/"
             className="w-full h-[600px] border-0 rounded-md"
             title="Communauté virtuelle HandiConnect"
             onLoad={() => setIsIframeLoaded(true)}
